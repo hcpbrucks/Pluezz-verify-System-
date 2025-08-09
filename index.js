@@ -131,7 +131,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.commandName === 'verify') {
     const embed = new EmbedBuilder()
       .setTitle('Verifizierung')
-      .setDescription('Klicke auf den Button, um dich zu verifizieren und Zugriff auf den Server zu bekommen.')
+      .setDescription('Please Tap on The button Below to gain access to all channels! ')
       .setColor(0xff0000)
       .setThumbnail('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
 
