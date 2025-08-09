@@ -1,1 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backup Server Admin</title>
+</head>
+<body>
+  <h1>Backup Server Admin</h1>
+  <p>Verifizierte User:</p>
+  <ul id="userList"></ul>
 
+  <h2>Backup Server Invite Link</h2>
+  <input type="text" id="inviteInput" placeholder="Discord invite link (z.B. https://discord.gg/abc123)" style="width:300px;" />
+  <button id="sendInvite">Send Invite to Verified Users</button>
+
+  <p id="status"></p>
+
+  <script>
+    async function loadUsers() {
+      const res = await fetch('/admin/users');
+      const users = await res.json();
+      const userList = document.getElementById('userList');
+      userList.innerHTML = '';
+      users.forEach(u => {
+        const li = document.createElement('li');
+        li.textContent = u;
+        userList.appendChild(li);
+      });
+    }
+
+    document.getElementById('sendInvite').onclick = async () => {
+      const inviteLink = document.getElementById('inviteInput').value.trim();
+      if (!inviteLink) {
+        alert('Please enter an invite link.');
+        return;
+      }
+      const res = await fetch('/admin/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invite_link: invite
