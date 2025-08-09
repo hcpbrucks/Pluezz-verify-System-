@@ -1,81 +1,98 @@
+require('dotenv').config();
+
 const express = require('express');
-const fetch = require('node-fetch'); // Für API Calls, falls noch nicht installiert: npm install node-fetch@2
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const fetch = require('node-fetch'); // npm install node-fetch@2
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require('discord.js');
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
+const clientSecret = process.env.CLIENT_SECRET;
 const guildId = process.env.GUILD_ID;
-const redirectUri = process.env.REDIRECT_URI || "http://localhost/oauth/callback";
+const redirectUri = process.env.REDIRECT_URI;
 
 const PORT = process.env.PORT || 3000;
 
 const app = express();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ],
 });
 
 // Express OAuth2 Callback Route
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
-  if (!code) return res.status(400).send("No code provided");
+  if (!code) return res.status(400).send("Kein Code erhalten.");
 
   try {
-    // 1. Tausche code gegen Access Token
-    const data = new URLSearchParams();
-    data.append('client_id', clientId);
-    data.append('client_secret', process.env.CLIENT_SECRET);
-    data.append('grant_type', 'authorization_code');
-    data.append('code', code);
-    data.append('redirect_uri', redirectUri);
-    data.append('scope', 'identify guilds');
+    // 1. Tausche Code gegen Access Token
+    const params = new URLSearchParams();
+    params.append('client_id', clientId);
+    params.append('client_secret', clientSecret);
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code);
+    params.append('redirect_uri', redirectUri);
+    params.append('scope', 'identify guilds.join');
 
     const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
-      body: data,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      body: params,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      return res.status(500).send("Failed to get access token: " + errorText);
+      return res.status(500).send("Token konnte nicht abgerufen werden: " + errorText);
     }
 
     const tokenJson = await tokenResponse.json();
     const accessToken = tokenJson.access_token;
 
-    // 2. Hol Nutzerdaten
+    // 2. Hole User-Daten
     const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: `Bearer ${accessToken}` }
+      headers: { Authorization: `Bearer ${accessToken}` },
     });
+
+    if (!userResponse.ok) {
+      return res.status(500).send("User-Daten konnten nicht geladen werden.");
+    }
+
     const user = await userResponse.json();
 
-    // 3. User zum Server hinzufügen (Backup Server)
-    // Dazu brauchst du ein Bot Token mit Berechtigung "guilds.members.add"
-    // Achtung: Endpoint ist nur mit Bot Token möglich (hier also über deinen Bot-Client)
+    // 3. Füge User zum Server hinzu
+    const guild = await client.guilds.fetch(guildId);
 
-    await client.guilds.fetch(guildId).then(async guild => {
-      // Einladung via Member hinzufügen
-      // Die Funktion guild.members.add() ist noch experimentell in discord.js v14+
-      // Falls nicht verfügbar, kannst du stattdessen einen Invite-Link schicken
-      try {
-        await guild.members.add(user.id, { accessToken });
-        console.log(`User ${user.username} wurde hinzugefügt.`);
-      } catch (e) {
-        console.error('User konnte nicht hinzugefügt werden:', e);
-      }
-    });
-
-    res.send(`Hi ${user.username}, du wurdest verifiziert und dem Backup-Server hinzugefügt!`);
+    try {
+      await guild.members.add(user.id, { accessToken });
+      console.log(`User ${user.username}#${user.discriminator} wurde hinzugefügt.`);
+      res.send(`Hallo ${user.username}, du wurdest erfolgreich verifiziert und dem Server hinzugefügt!`);
+    } catch (e) {
+      console.error("Fehler beim Hinzufügen des Users:", e);
+      res.status(500).send("User konnte nicht hinzugefügt werden. Bitte überprüfe die Bot-Berechtigungen.");
+    }
   } catch (err) {
-    console.error(err);
-    res.status(500).send('Ein Fehler ist aufgetreten.');
+    console.error("Unbekannter Fehler im OAuth2 Callback:", err);
+    res.status(500).send("Ein unerwarteter Fehler ist aufgetreten.");
   }
 });
 
-// Express Server starten
+// Starte Express Server
 app.listen(PORT, () => {
-  console.log(`Express server läuft auf Port ${PORT}`);
+  console.log(`Express Server läuft auf Port ${PORT}`);
 });
 
 // Slash Command Definition
@@ -83,10 +100,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName('verify')
     .setDescription('Sendet eine Verifizierungs-Nachricht mit Button')
-    .toJSON()
+    .toJSON(),
 ];
 
-// Register Slash Commands
+// Slash Commands registrieren
 const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {
@@ -98,39 +115,39 @@ const rest = new REST({ version: '10' }).setToken(token);
     );
     console.log('Slash Commands registriert.');
   } catch (error) {
-    console.error(error);
+    console.error('Fehler beim Registrieren der Commands:', error);
   }
 })();
 
-// Bot ready
+// Bot ready Event
 client.once('ready', () => {
-  console.log(`Eingeloggt als ${client.user.tag}`);
+  console.log(`Bot eingeloggt als ${client.user.tag}`);
 });
 
 // Slash Command Handler
-client.on('interactionCreate', async interaction => {
+client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'verify') {
     const embed = new EmbedBuilder()
-      .setTitle('Verifizieren')
-      .setDescription('Klicke auf den Button, um dich zu verifizieren und Zugriff zu bekommen.')
+      .setTitle('Verifizierung')
+      .setDescription('Klicke auf den Button, um dich zu verifizieren und Zugriff auf den Server zu bekommen.')
       .setColor(0xff0000)
       .setThumbnail('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
 
-    // OAuth2 URL mit Scope & Redirect Uri
-    const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=0&scope=identify%20guilds&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    // OAuth2 URL mit guilds.join Scope!
+    const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=0&scope=identify%20guilds.join&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-    const row = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setLabel('Verifizieren')
-          .setStyle(ButtonStyle.Link)
-          .setURL(oauthUrl)
-      );
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('Verifizieren')
+        .setStyle(ButtonStyle.Link)
+        .setURL(oauthUrl)
+    );
 
     await interaction.reply({ embeds: [embed], components: [row], ephemeral: false });
   }
 });
 
+// Bot Login starten
 client.login(token);
