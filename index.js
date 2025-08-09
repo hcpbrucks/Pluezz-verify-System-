@@ -1,19 +1,88 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const express = require('express');
+const fetch = require('node-fetch'); // Für API Calls, falls noch nicht installiert: npm install node-fetch@2
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 const guildId = process.env.GUILD_ID;
-const redirectUri = process.env.REDIRECT_URI || "http://localhost/callback"; // fallback
+const redirectUri = process.env.REDIRECT_URI || "http://localhost/oauth/callback";
+
+const PORT = process.env.PORT || 3000;
+
+const app = express();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers],
+});
+
+// Express OAuth2 Callback Route
+app.get('/oauth/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.status(400).send("No code provided");
+
+  try {
+    // 1. Tausche code gegen Access Token
+    const data = new URLSearchParams();
+    data.append('client_id', clientId);
+    data.append('client_secret', process.env.CLIENT_SECRET);
+    data.append('grant_type', 'authorization_code');
+    data.append('code', code);
+    data.append('redirect_uri', redirectUri);
+    data.append('scope', 'identify guilds');
+
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      body: data,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      return res.status(500).send("Failed to get access token: " + errorText);
+    }
+
+    const tokenJson = await tokenResponse.json();
+    const accessToken = tokenJson.access_token;
+
+    // 2. Hol Nutzerdaten
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const user = await userResponse.json();
+
+    // 3. User zum Server hinzufügen (Backup Server)
+    // Dazu brauchst du ein Bot Token mit Berechtigung "guilds.members.add"
+    // Achtung: Endpoint ist nur mit Bot Token möglich (hier also über deinen Bot-Client)
+
+    await client.guilds.fetch(guildId).then(async guild => {
+      // Einladung via Member hinzufügen
+      // Die Funktion guild.members.add() ist noch experimentell in discord.js v14+
+      // Falls nicht verfügbar, kannst du stattdessen einen Invite-Link schicken
+      try {
+        await guild.members.add(user.id, { accessToken });
+        console.log(`User ${user.username} wurde hinzugefügt.`);
+      } catch (e) {
+        console.error('User konnte nicht hinzugefügt werden:', e);
+      }
+    });
+
+    res.send(`Hi ${user.username}, du wurdest verifiziert und dem Backup-Server hinzugefügt!`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Ein Fehler ist aufgetreten.');
+  }
+});
+
+// Express Server starten
+app.listen(PORT, () => {
+  console.log(`Express server läuft auf Port ${PORT}`);
 });
 
 // Slash Command Definition
 const commands = [
   new SlashCommandBuilder()
     .setName('verify')
-    .setDescription('Sends a verification message with the verify button')
+    .setDescription('Sendet eine Verifizierungs-Nachricht mit Button')
     .toJSON()
 ];
 
@@ -22,65 +91,45 @@ const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {
   try {
-    console.log('Registering slash commands...');
+    console.log('Registriere Slash Commands...');
     await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
       { body: commands }
     );
-    console.log('Slash commands registered.');
+    console.log('Slash Commands registriert.');
   } catch (error) {
     console.error(error);
   }
 })();
 
-// Bot ready Event
+// Bot ready
 client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Eingeloggt als ${client.user.tag}`);
 });
 
-// Handle slash commands
+// Slash Command Handler
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'verify') {
-    // Create Embed
     const embed = new EmbedBuilder()
-      .setTitle('Verify')
-      .setDescription('Please verify to gain access to all channels and also to get added to the new server **if** this server gets banned.')
-      .setColor(0xFF0000) // Rot
+      .setTitle('Verifizieren')
+      .setDescription('Klicke auf den Button, um dich zu verifizieren und Zugriff zu bekommen.')
+      .setColor(0xff0000)
       .setThumbnail('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
 
-    // Create Button with OAuth2 invite link (Beispiel für Backup Server-Link, den du später anpassen kannst)
-    // Du kannst den Link über die Webseite dann austauschen
-    const inviteLink = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
-
-    const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+    // OAuth2 URL mit Scope & Redirect Uri
+    const oauthUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=0&scope=identify%20guilds&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
     const row = new ActionRowBuilder()
       .addComponents(
         new ButtonBuilder()
-          .setCustomId('verify_button')
-          .setLabel('Verify')
-          .setStyle(ButtonStyle.Primary)
+          .setLabel('Verifizieren')
+          .setStyle(ButtonStyle.Link)
+          .setURL(oauthUrl)
       );
 
     await interaction.reply({ embeds: [embed], components: [row], ephemeral: false });
-  }
-});
-
-// Handle Button Interactions
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isButton()) return;
-
-  if (interaction.customId === 'verify_button') {
-    // Hier kannst du speichern, dass der User sich verifiziert hat (z.B. in DB oder JSON)
-    // Für das Beispiel senden wir ihm nur eine DM
-    try {
-      await interaction.user.send('You have successfully verified! You will receive a DM with more information.');
-      await interaction.reply({ content: 'Verification successful! Check your DMs.', ephemeral: true });
-    } catch (err) {
-      await interaction.reply({ content: 'I could not send you a DM! Please check your privacy settings.', ephemeral: true });
-    }
   }
 });
 
