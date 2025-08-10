@@ -1,148 +1,156 @@
 import express from 'express';
-import { Client, GatewayIntentBits, REST, Routes, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } from 'discord.js';
-import fetch from 'node-fetch';
+import { Client, GatewayIntentBits, EmbedBuilder } from 'discord.js';
+import axios from 'axios';
+
+const {
+  CLIENT_ID,
+  CLIENT_SECRET,
+  BOT_TOKEN,
+  GUILD_ID,
+  ROLE_ID,
+  REDIRECT_URI,
+  ADMIN_PASSWORD,
+} = process.env;
+
+if (!CLIENT_ID || !CLIENT_SECRET || !BOT_TOKEN || !GUILD_ID || !ROLE_ID || !REDIRECT_URI || !ADMIN_PASSWORD) {
+  console.error('ERROR: Bitte alle Umgebungsvariablen setzen!');
+  process.exit(1);
+}
 
 const app = express();
 app.use(express.json());
 
-// Umgebungsvariablen aus Render (oder .env)
-const {
-  TOKEN,
-  CLIENT_ID,
-  CLIENT_SECRET,
-  GUILD_ID,
-  ROLE_ID,
-  PORT = 10000,
-  REDIRECT_URI,
-} = process.env;
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
-if (!TOKEN || !CLIENT_ID || !CLIENT_SECRET || !GUILD_ID || !ROLE_ID || !REDIRECT_URI) {
-  console.error('Bitte alle Umgebungsvariablen setzen!');
-  process.exit(1);
-}
+client.login(BOT_TOKEN);
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+const verifiedUsers = new Set();
+
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag}`);
 });
 
-client.login(TOKEN);
-
-client.on('ready', async () => {
-  console.log(`Bot logged in as ${client.user.tag}`);
-
-  const rest = new REST({ version: '10' }).setToken(TOKEN);
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      {
-        body: [
-          {
-            name: 'verify',
-            description: 'Start verification process',
-          },
-        ],
-      },
-    );
-    console.log('Slash Command /verify registered.');
-  } catch (e) {
-    console.error(e);
-  }
+// /verify Command simulieren (Discord-Command-Handling kann man noch erweitern)
+app.get('/verify-link', (req, res) => {
+  // Sende einfach den OAuth2 Link
+  const oauthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&permissions=0&scope=identify%20guilds.join&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+  res.send(`
+    <h1>Verify</h1>
+    <p>Click here to verify your Discord account:</p>
+    <a href="${oauthUrl}">Verify with Discord</a>
+  `);
 });
 
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === 'verify') {
-    // OAuth2 Link bauen mit Variablen
-    const oauthUrl = new URL('https://discord.com/api/oauth2/authorize');
-    oauthUrl.searchParams.set('client_id', CLIENT_ID);
-    oauthUrl.searchParams.set('permissions', '0');
-    oauthUrl.searchParams.set('scope', 'identify guilds');
-    oauthUrl.searchParams.set('response_type', 'code');
-    oauthUrl.searchParams.set('redirect_uri', REDIRECT_URI);
-
-    const embed = new EmbedBuilder()
-      .setTitle('Verify yourself')
-      .setDescription('Click the button below to verify and join the server.')
-      .setColor('#5865F2')
-      .setImage('https://i.imgur.com/lx3H30Q.png'); // Beispielbild
-
-    const button = new ButtonBuilder()
-      .setLabel('Verify')
-      .setStyle(ButtonStyle.Link)
-      .setURL(oauthUrl.toString());
-
-    const row = new ActionRowBuilder().addComponents(button);
-
-    await interaction.reply({ embeds: [embed], components: [row], ephemeral: false });
-  }
-});
-
+// OAuth2 Callback
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send('No code provided');
 
-  const data = new URLSearchParams();
-  data.append('client_id', CLIENT_ID);
-  data.append('client_secret', CLIENT_SECRET);
-  data.append('grant_type', 'authorization_code');
-  data.append('code', code);
-  data.append('redirect_uri', REDIRECT_URI);
-  data.append('scope', 'identify guilds');
-
   try {
-    const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
-      method: 'POST',
-      body: data,
+    // Token anfragen
+    const tokenResponse = await axios.post('https://discord.com/api/oauth2/token', new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: REDIRECT_URI,
+      scope: 'identify guilds.join'
+    }).toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+
+    const { access_token } = tokenResponse.data;
+
+    // User Daten holen
+    const userResponse = await axios.get('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+    const user = userResponse.data;
+
+    // User zum Server hinzufügen mit Scope guilds.join
+    await axios.put(`https://discord.com/api/guilds/${GUILD_ID}/members/${user.id}`, {
+      access_token
+    }, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+        Authorization: `Bot ${BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
     });
 
-    if (!tokenRes.ok) {
-      const err = await tokenRes.text();
-      console.error('Token error:', err);
-      return res.status(500).send('Failed to get token');
-    }
-
-    const tokenData = await tokenRes.json();
-    const accessToken = tokenData.access_token;
-
-    const userRes = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: `Bearer ${accessToken}` },
+    // Rolle vergeben
+    await axios.put(`https://discord.com/api/guilds/${GUILD_ID}/members/${user.id}/roles/${ROLE_ID}`, {}, {
+      headers: {
+        Authorization: `Bot ${BOT_TOKEN}`
+      }
     });
-    const userData = await userRes.json();
 
-    const guild = await client.guilds.fetch(GUILD_ID);
+    verifiedUsers.add(user.username + '#' + user.discriminator);
 
-    let member;
-    try {
-      member = await guild.members.fetch(userData.id);
-    } catch {
-      // User nicht im Server, kann man nur via Invite hinzufügen (Discord Limitationen)
-      // Hier könntest du z.B. eine Nachricht loggen oder User manuell hinzufügen, falls möglich
-      console.warn(`User ${userData.id} is not a member of the guild.`);
-    }
-
-    if (member) {
-      await member.roles.add(ROLE_ID);
-    }
-
+    // Erfolgsseite anzeigen
     res.send(`
-      <html>
-        <head><title>Verification complete</title></head>
-        <body style="font-family:sans-serif; text-align:center; padding:2rem;">
-          <h1>You are verified!</h1>
-          <p>You can close this page now.</p>
-        </body>
-      </html>
+      <h1>You are verified!</h1>
+      <p>You can close this page now.</p>
     `);
-  } catch (error) {
-    console.error(error);
-    res.status(500).send('Internal server error');
+
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).send('Verification failed.');
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Admin Panel: Verifizierte User ansehen & Invite-Link an alle senden
+app.get('/admin', (req, res) => {
+  const pass = req.headers['authorization'];
+  if (pass !== ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+
+  res.send(`
+    <h1>Admin Panel</h1>
+    <h2>Verified Users</h2>
+    <ul>
+      ${[...verifiedUsers].map(u => `<li>${u}</li>`).join('')}
+    </ul>
+    <form method="POST" action="/admin/invite">
+      <input type="text" name="invite" placeholder="Discord invite link" required />
+      <button type="submit">Send Invite to Verified Users</button>
+    </form>
+  `);
 });
+
+app.post('/admin/invite', express.urlencoded({ extended: true }), async (req, res) => {
+  const pass = req.headers['authorization'];
+  if (pass !== ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+
+  const inviteLink = req.body.invite;
+  if (!inviteLink) return res.status(400).send('No invite link provided');
+
+  // Hier würdest du z.B. die verifizierten User benachrichtigen, 
+  // aber da wir nur einen Bot-User haben, ist das nur als Beispiel:
+  try {
+    for (const username of verifiedUsers) {
+      // Zum Beispiel per DM oder andere Logik
+      // await client.users.fetch(userid).then(user => user.send(`Invite: ${inviteLink}`));
+      console.log(`Would send invite to ${username}: ${inviteLink}`);
+    }
+    res.send('Invites sent (simulated)');
+  } catch (e) {
+    res.status(500).send('Error sending invites');
+  }
+});
+
+// Simpler /verify Command (für Discord Slash Command braucht man noch discord.js/REST-Setup)
+app.get('/send-verify-message', (req, res) => {
+  // Beispiel: Einfach im Terminal gestartet, um zu zeigen wie der Bot eine Nachricht senden könnte
+  const channelId = 'DEIN_CHANNEL_ID'; // Hier Channel-ID mitlesen oder setzen
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) return res.send('Channel not found');
+  const embed = new EmbedBuilder()
+    .setTitle('Please verify yourself')
+    .setDescription('Click the link to verify your account: https://deine-app.onrender.com/verify-link')
+    .setColor('Blue');
+  channel.send({ embeds: [embed] });
+  res.send('Verify message sent.');
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
