@@ -39,7 +39,7 @@ client.on('interactionCreate', async interaction => {
       .setTitle('Verify yourself')
       .setDescription('Click the button below to verify and join the server.')
       .setColor('#5865F2')
-      .setImage('https://i.imgur.com/JX6vZQN.png'); // Beispielbild, kannst du anpassen
+      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png?ex=68993475&is=6897e2f5&hm=5e944becc85e3d7732edaebbedb9fbfa63b0dabd148c412cc08ef1af4ea91e18&'); // Beispielbild, kannst du anpassen
 
     const button = new ButtonBuilder()
       .setLabel('Verify with Discord')
