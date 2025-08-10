@@ -37,6 +37,7 @@ const client = new Client({
 });
 
 client.login(DISCORD_TOKEN);
+
 client.once('ready', () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
   registerCommands();
@@ -75,7 +76,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// /verify Route -> direkt Redirect zu Discord OAuth2 mit State = User ID falls vorhanden
+// /verify Route -> redirect zu Discord OAuth2 mit State = User ID falls vorhanden
 app.get('/verify', (req, res) => {
   const userId = req.query.user_id || '';
   const params = new URLSearchParams({
@@ -87,7 +88,6 @@ app.get('/verify', (req, res) => {
     prompt: 'consent',
   });
 
-  // Redirect direkt zu Discord OAuth
   res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
 });
 
@@ -99,7 +99,6 @@ app.get('/oauth/callback', async (req, res) => {
   if (!code) return res.send('No code received.');
 
   try {
-    // Request token
     const data = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
@@ -114,20 +113,20 @@ app.get('/oauth/callback', async (req, res) => {
       body: data,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
+
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
       return res.send(`Token error: ${tokenData.error_description}`);
     }
 
-    // Get user data
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const userData = await userRes.json();
 
     // Add user to main guild with role
-    await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
+    const addMemberRes = await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
       method: 'PUT',
       headers: {
         Authorization: `Bot ${DISCORD_TOKEN}`,
@@ -139,17 +138,22 @@ app.get('/oauth/callback', async (req, res) => {
       }),
     });
 
+    if (!addMemberRes.ok) {
+      const errorBody = await addMemberRes.text();
+      console.error(`Failed to add member to guild: ${errorBody}`);
+      return res.send('Failed to add you to the guild. Make sure the bot has the necessary permissions.');
+    }
+
     // Save user as verified
     verifiedUsers.set(userData.id, `${userData.username}#${userData.discriminator}`);
 
-    // Success page
     res.send(`
       <h1>You are verified!</h1>
       <p>You can now close this page.</p>
       <p><a href="/">Back to Home</a></p>
     `);
   } catch (error) {
-    console.error(error);
+    console.error('Verification error:', error);
     res.send('Error during the verification process.');
   }
 });
@@ -177,7 +181,6 @@ app.post('/admin/login', (req, res) => {
 
 // Admin Dashboard
 app.get('/admin/dashboard', (req, res) => {
-  // Verified Users List als <li>
   const usersList = [...verifiedUsers.values()]
     .map(u => `<li>${u}</li>`)
     .join('');
@@ -226,21 +229,27 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
 
   for (const [userId] of verifiedUsers) {
     try {
-      await fetch(`https://discord.com/api/guilds/${backupGuildId}/members/${userId}`, {
+      const response = await fetch(`https://discord.com/api/guilds/${backupGuildId}/members/${userId}`, {
         method: 'PUT',
         headers: {
           Authorization: `Bot ${DISCORD_TOKEN}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // Ohne access_token klappt oft nur bei Bots mit „Bot OAuth2“ und „guilds.members.write“ Scope.
-          // Wenn Probleme auftreten, kann man das hier anpassen.
-          roles: [], // Optional: Rolle hinzufügen, wenn gewünscht
+          roles: [], // Optional: Rollen hinzufügen, falls gewünscht
         }),
       });
-      successes++;
-    } catch {
+
+      if (response.ok) {
+        successes++;
+      } else {
+        failures++;
+        const errorText = await response.text();
+        console.error(`Failed to add user ${userId} to backup guild: ${errorText}`);
+      }
+    } catch (err) {
       failures++;
+      console.error(`Error adding user ${userId}:`, err);
     }
   }
 
@@ -256,6 +265,8 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   if (interaction.commandName === 'verify') {
+    // Permission check: Hier frag ich mich, ob wirklich nur Admins sich verifizieren sollen?
+    // Falls nicht, entferne diese Zeile:
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
       return interaction.reply({
         content: "You need Administrator permission to use this command.",
