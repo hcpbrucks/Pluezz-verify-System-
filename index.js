@@ -267,7 +267,7 @@ client.on('interactionCreate', async interaction => {
 
   if (interaction.commandName === 'verify') {
     const baseUrl = BASE_URL || `http://localhost:${PORT}`;
-    const verifyUrl = `${baseUrl}/verify?user_id=${interaction.user.id}`;
+    const verifyUrl = `https://pluezz-verify-system.onrender.com/verify?user_id=${interaction.user.id}`;
 
     const embed = new EmbedBuilder()
       .setTitle('Verify')
