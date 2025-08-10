@@ -27,7 +27,12 @@ const {
 } = process.env;
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+  ],
   partials: ['CHANNEL'], // Für DMs
 });
 
@@ -48,7 +53,9 @@ client.on('interactionCreate', async (interaction) => {
       .setTitle('Verify yourself')
       .setDescription('Click the button below to verify and gain access to all channels.')
       .setColor('#5865F2')
-      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
+      .setImage(
+        'https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png'
+      );
 
     const button = new ButtonBuilder()
       .setLabel('Verify with Discord')
@@ -63,6 +70,7 @@ client.on('interactionCreate', async (interaction) => {
 
 client.login(DISCORD_TOKEN);
 
+// Verified Users Map speichert jetzt auch accessToken
 const verifiedUsers = new Map();
 
 app.get('/', (req, res) => {
@@ -98,7 +106,12 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userResponse.json();
 
-    verifiedUsers.set(userData.id, { username: userData.username, discriminator: userData.discriminator });
+    // Token zusammen mit Userdaten speichern
+    verifiedUsers.set(userData.id, {
+      username: userData.username,
+      discriminator: userData.discriminator,
+      accessToken: tokenData.access_token,
+    });
 
     res.send(`<h2>You are verified, ${userData.username}#${userData.discriminator}!</h2><p>You can close this page now.</p>`);
   } catch (error) {
@@ -198,7 +211,7 @@ app.post('/admin/add-to-guild', async (req, res) => {
   let addedCount = 0;
   let failedUsers = [];
 
-  for (const userId of verifiedUsers.keys()) {
+  for (const [userId, userData] of verifiedUsers.entries()) {
     try {
       const member = await guild.members.fetch(userId).catch(() => null);
       if (member) {
@@ -206,7 +219,12 @@ app.post('/admin/add-to-guild', async (req, res) => {
           await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
         }
       } else {
-        await guild.members.add(userId, { roles: [ROLE_ID], reason: 'User verified via Pluezz Verify System' });
+        // Hier Access Token mitgeben
+        await guild.members.add(userId, {
+          accessToken: userData.accessToken,
+          roles: [ROLE_ID],
+          reason: 'User verified via Pluezz Verify System',
+        });
       }
       addedCount++;
     } catch (error) {
@@ -229,7 +247,9 @@ app.post('/admin/add-to-guild', async (req, res) => {
 // GET verified users (für Admin-Frontend)
 app.get('/admin/users', (req, res) => {
   // Hier evtl. Auth prüfen
-  const users = Array.from(verifiedUsers.values()).map(u => `${u.username}#${u.discriminator}`);
+  const users = Array.from(verifiedUsers.values()).map(
+    (u) => `${u.username}#${u.discriminator}`
+  );
   res.json(users);
 });
 
@@ -240,29 +260,4 @@ app.post('/admin/invite', async (req, res) => {
     return res.json({ success: false, error: 'No invite link provided' });
   }
 
-  const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
-  if (!guild) {
-    return res.json({ success: false, error: 'Guild not found' });
-  }
-
-  let sentCount = 0;
-  let failedCount = 0;
-
-  for (const userId of verifiedUsers.keys()) {
-    try {
-      const user = await client.users.fetch(userId);
-      await user.send(`You are invited to join our backup server: ${inviteLink}`);
-      sentCount++;
-    } catch (error) {
-      console.error(`Failed to send invite to user ${userId}:`, error);
-      failedCount++;
-    }
-  }
-
-  res.json({ success: true, sent: sentCount, failed: failedCount });
-});
-
-// Starte den Express-Server
-app.listen(PORT, () => {
-  console.log(`Express Server läuft auf Port ${PORT}`);
-});
+  const guild = await
