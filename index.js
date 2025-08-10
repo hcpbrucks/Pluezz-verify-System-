@@ -1,7 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
-import { Client, GatewayIntentBits } from 'discord.js';
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 
 dotenv.config();
 
@@ -20,17 +20,45 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Discord Client zum Verwalten
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+// Discord Client Setup
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+});
+
 client.login(DISCORD_TOKEN);
 client.once('ready', () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
+  registerCommands();
 });
+
+// Registriere den /verify Slash-Command nur für deinen Server (Guild)
+async function registerCommands() {
+  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
+
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('verify')
+      .setDescription('Erhalte den Verifizierungslink'),
+  ].map(cmd => cmd.toJSON());
+
+  try {
+    console.log('Registriere Slash-Commands...');
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: commands },
+    );
+    console.log('Slash-Commands erfolgreich registriert!');
+  } catch (error) {
+    console.error('Fehler bei Registrierung der Slash-Commands:', error);
+  }
+}
 
 // In-Memory Speicher für verifizierte User (username oder id)
 const verifiedUsers = new Set();
 
-// Root Route: einfache Info-Seite
+// Express Routes
+
+// Root Route
 app.get('/', (req, res) => {
   res.send(`
     <h1>Discord Verification Server</h1>
@@ -39,7 +67,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// /verify Route: zeige Link zum Discord OAuth2 Login mit user_id param (optional)
+// /verify als Webseite — kannst du z.B. auch im Bot verwenden
 app.get('/verify', (req, res) => {
   const userId = req.query.user_id || 'unknown';
   const params = new URLSearchParams({
@@ -59,7 +87,7 @@ app.get('/verify', (req, res) => {
   `);
 });
 
-// OAuth2 Callback Route — WICHTIG: Der Pfad MUSS exakt zum REDIRECT_URI passen
+// OAuth2 Callback Route
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   const stateUserId = req.query.state;
@@ -132,7 +160,7 @@ app.get('/admin', (req, res) => {
   `);
 });
 
-// Admin Login POST (ohne Sessions, sehr simpel)
+// Admin Login POST
 app.post('/admin/login', (req, res) => {
   const { password } = req.body;
   if (password === ADMIN_PASSWORD) {
@@ -152,6 +180,19 @@ app.get('/admin/dashboard', (req, res) => {
     </ul>
     <p><a href="/">Zur Startseite</a></p>
   `);
+});
+
+// Event Listener für Slash-Commands
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isCommand()) return;
+
+  if (interaction.commandName === 'verify') {
+    const verifyUrl = `https://deinedomain.com/verify?user_id=${interaction.user.id}`;
+    await interaction.reply({
+      content: `Klicke hier, um dich zu verifizieren: ${verifyUrl}`,
+      ephemeral: true,
+    });
+  }
 });
 
 // Server starten
