@@ -44,13 +44,12 @@ client.login(DISCORD_TOKEN);
 client.once('ready', async () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
 
-  // Prüfe, ob Bot die nötigen Rechte in GUILD_ID hat
+    // Prüfe, ob Bot die nötigen Rechte in GUILD_ID hat
   const guild = await client.guilds.fetch(GUILD_ID);
   const botMember = await guild.members.fetch(client.user.id);
 
   if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuildSettings)) {
-  console.warn('Bot hat keine Berechtigung "Server verwalten" (ManageGuildSettings), könnte Probleme machen.');
-}
+    console.warn('Bot hat keine Berechtigung "Server verwalten" (ManageGuildSettings), könnte Probleme machen.');
   }
   if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     console.warn('Bot hat keine Berechtigung "Server verwalten", könnte Probleme machen.');
