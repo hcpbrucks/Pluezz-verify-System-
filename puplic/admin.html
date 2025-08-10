@@ -1,41 +1,104 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Backup Server Admin</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Backup Server Admin</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 30px auto;
+      padding: 10px;
+    }
+    input[type="text"] {
+      padding: 8px;
+      font-size: 16px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    #status {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
   <h1>Backup Server Admin</h1>
-  <p>Verifizierte User:</p>
-  <ul id="userList"></ul>
 
-  <h2>Backup Server Invite Link</h2>
-  <input type="text" id="inviteInput" placeholder="Discord invite link (z.B. https://discord.gg/abc123)" style="width:300px;" />
-  <button id="sendInvite">Send Invite to Verified Users</button>
+  <section>
+    <h2>Verifizierte User</h2>
+    <ul id="userList">Lade...</ul>
+  </section>
 
-  <p id="status"></p>
+  <section>
+    <h2>Backup Server Invite Link</h2>
+    <input
+      type="text"
+      id="inviteInput"
+      placeholder="Discord invite link (z.B. https://discord.gg/abc123)"
+      style="width: 300px;"
+    />
+    <button id="sendInvite">Invite an verifizierte User senden</button>
+    <p id="status"></p>
+  </section>
 
   <script>
+    // Verifizierte User laden und anzeigen
     async function loadUsers() {
-      const res = await fetch('/admin/users');
-      const users = await res.json();
-      const userList = document.getElementById('userList');
-      userList.innerHTML = '';
-      users.forEach(u => {
-        const li = document.createElement('li');
-        li.textContent = u;
-        userList.appendChild(li);
-      });
+      try {
+        const res = await fetch('/admin/users');
+        if (!res.ok) throw new Error('Fehler beim Laden der User');
+        const users = await res.json();
+        const userList = document.getElementById('userList');
+        userList.innerHTML = '';
+        if (users.length === 0) {
+          userList.textContent = 'Keine verifizierten User gefunden.';
+          return;
+        }
+        users.forEach(u => {
+          const li = document.createElement('li');
+          li.textContent = u;
+          userList.appendChild(li);
+        });
+      } catch (err) {
+        document.getElementById('userList').textContent = 'Fehler beim Laden der User.';
+      }
     }
 
+    loadUsers();
+
+    // Invite-Link an alle verifizierten User schicken
     document.getElementById('sendInvite').onclick = async () => {
       const inviteLink = document.getElementById('inviteInput').value.trim();
+      const status = document.getElementById('status');
       if (!inviteLink) {
-        alert('Please enter an invite link.');
+        alert('Bitte gib einen Invite-Link ein.');
         return;
       }
-      const res = await fetch('/admin/invite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invite_link: invite
+
+      status.textContent = 'Versende Invites...';
+
+      try {
+        const res = await fetch('/admin/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invite_link: inviteLink }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          status.textContent = `Invites erfolgreich an ${data.sent} User gesendet.`;
+        } else {
+          status.textContent = `Fehler: ${data.error}`;
+        }
+      } catch (e) {
+        status.textContent = 'Fehler beim Senden der Invites.';
+      }
+    };
+  </script>
+</body>
+</html>
