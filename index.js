@@ -48,8 +48,9 @@ client.once('ready', async () => {
   const guild = await client.guilds.fetch(GUILD_ID);
   const botMember = await guild.members.fetch(client.user.id);
 
-  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-    console.error('Bot hat keine Berechtigung "Rollen verwalten" im Server!');
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuildSettings)) {
+  console.warn('Bot hat keine Berechtigung "Server verwalten" (ManageGuildSettings), könnte Probleme machen.');
+}
   }
   if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
     console.warn('Bot hat keine Berechtigung "Server verwalten", könnte Probleme machen.');
