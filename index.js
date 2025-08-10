@@ -36,6 +36,22 @@ let backupGuildId = '';
 
 client.login(DISCORD_TOKEN);
 
+// Slash Command Interaction Handler
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'verify') {
+    try {
+      await interaction.reply({
+        content: `Klicke hier zum Verifizieren: ${process.env.BASE_URL || 'https://pluezz-verify-system.onrender.com'}/verify?user_id=${interaction.user.id}`,
+        ephemeral: true,
+      });
+    } catch (error) {
+      console.error('Fehler beim Beantworten des Commands:', error);
+    }
+  }
+});
+
 client.once('ready', async () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
 
@@ -93,7 +109,7 @@ app.get('/verify', (req, res) => {
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
-    scope: 'identify',  // Hier kein guilds.join mehr
+    scope: 'identify',
     state: userId,
     prompt: 'consent',
   });
@@ -133,7 +149,6 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userRes.json();
 
-    // Guild & BotMember & Zielrolle
     const guild = await client.guilds.fetch(GUILD_ID);
     const botMember = await guild.members.fetch(client.user.id);
     const targetRole = guild.roles.cache.get(ROLE_ID);
@@ -243,7 +258,6 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
   try {
     const backupGuild = await client.guilds.fetch(backupGuildId);
 
-    // Prüfen, ob Bot die Berechtigung hat
     const botMember = await backupGuild.members.fetch(client.user.id);
     if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuildMembers)) {
       return res.send('<p>Bot hat keine Berechtigung "Mitglieder verwalten" auf dem Backup Server. Bitte Berechtigungen anpassen. <a href="/admin/dashboard">Zurück</a></p>');
@@ -252,7 +266,6 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
     let addedCount = 0;
     let failedUsers = [];
 
-    // Alle verifizierten User hinzufügen
     for (const userId of verifiedUsers.keys()) {
       try {
         await backupGuild.members.add(userId);
@@ -271,9 +284,3 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
   } catch (error) {
     console.error('Fehler beim Zugriff auf Backup Server:', error);
     res.send(`<p>Fehler beim Zugriff auf Backup Server: ${error.message}</p><p><a href="/admin/dashboard">Zurück</a></p>`);
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
-});
