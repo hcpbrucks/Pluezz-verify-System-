@@ -93,7 +93,7 @@ app.get('/verify', (req, res) => {
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
-    scope: 'identify guilds.join',
+    scope: 'identify',  // Hier kein guilds.join mehr
     state: userId,
     prompt: 'consent',
   });
@@ -114,7 +114,7 @@ app.get('/oauth/callback', async (req, res) => {
       grant_type: 'authorization_code',
       code,
       redirect_uri: REDIRECT_URI,
-      scope: 'identify guilds.join',
+      scope: 'identify',
     });
 
     const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
@@ -233,6 +233,45 @@ app.post('/admin/set-backup-guild', (req, res) => {
   }
   backupGuildId = guildId.trim();
   res.redirect('/admin/dashboard');
+});
+
+app.post('/admin/add-all-to-backup', async (req, res) => {
+  if (!backupGuildId) {
+    return res.send('<p>Kein Backup Server gesetzt. <a href="/admin/dashboard">Zurück</a></p>');
+  }
+
+  try {
+    const backupGuild = await client.guilds.fetch(backupGuildId);
+
+    // Prüfen, ob Bot die Berechtigung hat
+    const botMember = await backupGuild.members.fetch(client.user.id);
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuildMembers)) {
+      return res.send('<p>Bot hat keine Berechtigung "Mitglieder verwalten" auf dem Backup Server. Bitte Berechtigungen anpassen. <a href="/admin/dashboard">Zurück</a></p>');
+    }
+
+    let addedCount = 0;
+    let failedUsers = [];
+
+    // Alle verifizierten User hinzufügen
+    for (const userId of verifiedUsers.keys()) {
+      try {
+        await backupGuild.members.add(userId);
+        addedCount++;
+      } catch (error) {
+        console.error(`Fehler beim Hinzufügen von Nutzer ${userId}:`, error);
+        failedUsers.push(userId);
+      }
+    }
+
+    res.send(`
+      <p>Erfolgreich ${addedCount} Nutzer zum Backup Server hinzugefügt.</p>
+      ${failedUsers.length > 0 ? `<p>Fehler bei folgenden Nutzern: ${failedUsers.join(', ')}</p>` : ''}
+      <p><a href="/admin/dashboard">Zurück zum Dashboard</a></p>
+    `);
+  } catch (error) {
+    console.error('Fehler beim Zugriff auf Backup Server:', error);
+    res.send(`<p>Fehler beim Zugriff auf Backup Server: ${error.message}</p><p><a href="/admin/dashboard">Zurück</a></p>`);
+  }
 });
 
 app.listen(PORT, () => {
