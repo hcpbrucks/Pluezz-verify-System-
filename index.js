@@ -236,4 +236,10 @@ app.get('/admin/dashboard', (req, res) => {
 app.post('/admin/set-backup-guild', (req, res) => {
   const { guildId } = req.body;
   if (!guildId) {
-    return res.send('<p
+    return res.send(`
+      <p>Guild ID ist erforderlich. <a href="/admin/dashboard">Zurück</a></p>
+    `);
+  }
+  backupGuildId = guildId.trim();
+  res.redirect('/admin/dashboard');
+});
