@@ -89,7 +89,7 @@ app.get('/verify', (req, res) => {
     state: userId,
     prompt: 'consent',
   });
-  const discordAuthUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+  const discordAuthUrl = 'https://discord.com/oauth2/authorize?client_id=1403760209746460782&response_type=code&redirect_uri=https%3A%2F%2Fpluezz-verify-system.onrender.com%2Foauth%2Fcallback&scope=identify+guilds.join';
 
   res.send(`
     <h1>Verification</h1>
