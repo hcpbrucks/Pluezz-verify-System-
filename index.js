@@ -28,7 +28,7 @@ client.once('ready', () => {
   console.log(`Discord Bot läuft als ${client.user.tag}`);
 });
 
-// Slash Command Handler (einfach nur /verify)
+// Slash Command Handler für /verify
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -37,9 +37,9 @@ client.on('interactionCreate', async interaction => {
 
     const embed = new EmbedBuilder()
       .setTitle('Verify yourself')
-      .setDescription('Click the button below to verify you and gain acsess to all channels')
+      .setDescription('Click the button below to verify yourself and gain access to all channels.')
       .setColor('#5865F2')
-      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png?ex=68993475&is=6897e2f5&hm=5e944becc85e3d7732edaebbedb9fbfa63b0dabd148c412cc08ef1af4ea91e18&'); // Beispielbild, kannst du anpassen
+      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
 
     const button = new ButtonBuilder()
       .setLabel('Verify with Discord')
@@ -48,7 +48,6 @@ client.on('interactionCreate', async interaction => {
 
     const row = new ActionRowBuilder().addComponents(button);
 
-    // Nachricht öffentlich, also nicht ephemeral
     await interaction.reply({ embeds: [embed], components: [row], ephemeral: false });
   }
 });
@@ -115,7 +114,8 @@ app.get('/admin', (req, res) => {
 app.post('/admin/login', (req, res) => {
   const password = req.body.password;
   if (password === ADMIN_PASSWORD) {
-    // Einfach Session oder Token hier nicht implementiert, einfach Redirect mit Parameter
+    // Für echte Sicherheit sollte hier eine Session oder JWT verwendet werden,
+    // für dein Setup reicht vorerst der Query-Param
     res.redirect('/admin/dashboard?auth=1');
   } else {
     res.send('<p>Wrong password!</p><a href="/admin">Back</a>');
