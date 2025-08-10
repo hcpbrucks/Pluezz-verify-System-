@@ -1,7 +1,7 @@
 import express from 'express';
-import { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } from 'discord.js';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
+import { Client, GatewayIntentBits } from 'discord.js';
 
 dotenv.config();
 
@@ -20,91 +20,28 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Discord Client Setup
+// Discord Client zum Verwalten
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
-
 client.login(DISCORD_TOKEN);
-
 client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Discord Client ready: ${client.user.tag}`);
 });
 
-// Slash Command Registrierung
-const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-
-(async () => {
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      {
-        body: [
-          {
-            name: 'verify',
-            description: 'Get your verification link',
-          },
-        ],
-      }
-    );
-    console.log('Slash command registered.');
-  } catch (error) {
-    console.error(error);
-  }
-})();
-
-// In-Memory verifizierte User speichern (für Demo)
+// In-Memory Speicher für verifizierte User (username oder id)
 const verifiedUsers = new Set();
 
-// Discord Interaction Handler
-app.post('/interactions', async (req, res) => {
-  const interaction = req.body;
-
-  if (interaction.type === 1) { // PING
-    return res.json({ type: 1 });
-  }
-
-  if (interaction.type === 2) { // Application Command
-    if (interaction.data.name === 'verify') {
-      // Antwort mit Embed und Link zur Verifizierung
-      const verifyUrl = `https://${process.env.RENDER_INTERNAL_HOSTNAME || 'your-render-url'}/oauth/verify?user_id=${interaction.member.user.id}`;
-
-      const embed = new EmbedBuilder()
-        .setTitle('Verify Yourself')
-        .setDescription(`Click the button below to verify and get access to the server!`)
-        .setColor('Blue')
-        .setImage('https://i.imgur.com/AfFp7pu.png'); // Beispielbild
-
-      return res.json({
-        type: 4,
-        data: {
-          embeds: [embed.toJSON()],
-          components: [
-            {
-              type: 1,
-              components: [
-                {
-                  type: 2,
-                  style: 5,
-                  label: 'Verify Here',
-                  url: verifyUrl,
-                },
-              ],
-            },
-          ],
-        },
-      });
-    }
-  }
-
-  res.sendStatus(404);
+// Root Route: einfache Info-Seite
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>Discord Verification Server</h1>
+    <p>Gehe zu <a href="/verify">/verify</a> um dich zu verifizieren.</p>
+    <p>Admin? <a href="/admin">Hier einloggen</a></p>
+  `);
 });
 
-// OAuth2 Route (Discord Login)
-app.get('/oauth/verify', async (req, res) => {
-  const userId = req.query.user_id;
-  if (!userId) return res.send('Invalid request');
-
-  // Hier zeigen wir einfach die OAuth2-URL zum Login an
-  // oder redirecten direkt
+// /verify Route: zeige Link zum Discord OAuth2 Login mit user_id param (optional)
+app.get('/verify', (req, res) => {
+  const userId = req.query.user_id || 'unknown';
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
@@ -113,30 +50,33 @@ app.get('/oauth/verify', async (req, res) => {
     state: userId,
     prompt: 'consent',
   });
-
   const discordAuthUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
 
-  res.redirect(discordAuthUrl);
+  res.send(`
+    <h1>Verification</h1>
+    <p>Klicke auf den Link, um dich via Discord zu verifizieren:</p>
+    <a href="${discordAuthUrl}">Discord Login</a>
+  `);
 });
 
-// OAuth2 Callback (Discord sendet Code)
+// OAuth2 Callback Route
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
-  const stateUserId = req.query.state; // unsere user_id
+  const stateUserId = req.query.state;
 
-  if (!code) return res.send('No code provided');
-
-  // Token holen
-  const data = new URLSearchParams({
-    client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: REDIRECT_URI,
-    scope: 'identify guilds.join',
-  });
+  if (!code) return res.send('Kein Code erhalten.');
 
   try {
+    // Token anfordern
+    const data = new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: REDIRECT_URI,
+      scope: 'identify guilds.join',
+    });
+
     const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
       body: data,
@@ -145,16 +85,16 @@ app.get('/oauth/callback', async (req, res) => {
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      return res.send(`Error getting token: ${tokenData.error_description}`);
+      return res.send(`Fehler beim Token: ${tokenData.error_description}`);
     }
 
-    // Nutzerinfos holen
+    // Userdaten abfragen
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const userData = await userRes.json();
 
-    // Rolle zum Server hinzufügen (guilds.join scope)
+    // User zum Guild hinzufügen mit Rolle
     await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
       method: 'PUT',
       headers: {
@@ -167,51 +107,54 @@ app.get('/oauth/callback', async (req, res) => {
       }),
     });
 
-    // Als verifiziert speichern (in-memory)
-    verifiedUsers.add(userData.username);
+    // User als verifiziert speichern
+    verifiedUsers.add(`${userData.username}#${userData.discriminator}`);
 
-    // Erfolgsseite
+    // Erfolgsseite anzeigen
     res.send(`
-      <h1>You are verified!</h1>
-      <p>You can close this page now.</p>
+      <h1>Du bist verifiziert!</h1>
+      <p>Du kannst diese Seite jetzt schließen.</p>
     `);
   } catch (error) {
     console.error(error);
-    res.send('Error during verification process.');
+    res.send('Fehler während des Verifizierungsprozesses.');
   }
 });
 
-// Admin Bereich (passwortgeschützt)
+// Admin Login Seite
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Admin Login</h1>
     <form method="POST" action="/admin/login">
-      <input name="password" type="password" placeholder="Password" />
+      <input name="password" type="password" placeholder="Passwort" required/>
       <button type="submit">Login</button>
     </form>
   `);
 });
 
+// Admin Login POST (ohne Sessions, sehr simpel)
 app.post('/admin/login', (req, res) => {
   const { password } = req.body;
   if (password === ADMIN_PASSWORD) {
     res.redirect('/admin/dashboard');
   } else {
-    res.send('Wrong password');
+    res.send('<p>Falsches Passwort. <a href="/admin">Zurück</a></p>');
   }
 });
 
+// Admin Dashboard
 app.get('/admin/dashboard', (req, res) => {
-  // Einfach Liste der verifizierten User anzeigen
   res.send(`
     <h1>Admin Dashboard</h1>
-    <h2>Verified Users</h2>
+    <h2>Verifizierte User</h2>
     <ul>
       ${[...verifiedUsers].map(u => `<li>${u}</li>`).join('')}
     </ul>
+    <p><a href="/">Zur Startseite</a></p>
   `);
 });
 
+// Server starten
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`Server läuft auf Port ${PORT}`);
 });
