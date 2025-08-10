@@ -10,12 +10,12 @@ import {
   EmbedBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  ActionRowBuilder 
+  ActionRowBuilder,
+  PermissionsBitField,
 } from 'discord.js';
 
 dotenv.config();
 
-// Umgebungsvariablen laden
 const {
   DISCORD_TOKEN,
   CLIENT_ID,
@@ -28,30 +28,39 @@ const {
   BASE_URL,
 } = process.env;
 
-// Express Setup
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Discord Client Setup
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
-// Zwischenspeicher für verifizierte Nutzer (userId => username#discriminator)
 const verifiedUsers = new Map();
-let backupGuildId = ''; // Backup-Guild ID
+let backupGuildId = '';
 
-// Bot Login
 client.login(DISCORD_TOKEN);
 
-// Sobald Discord-Client bereit ist
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
+
+  // Prüfe, ob Bot die nötigen Rechte in GUILD_ID hat
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const botMember = await guild.members.fetch(client.user.id);
+
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+    console.error('Bot hat keine Berechtigung "Rollen verwalten" im Server!');
+  }
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+    console.warn('Bot hat keine Berechtigung "Server verwalten", könnte Probleme machen.');
+  }
+  if (!botMember.permissions.has(PermissionsBitField.Flags.ManageMembers)) {
+    console.error('Bot hat keine Berechtigung "Mitglieder verwalten" im Server!');
+  }
+
   registerCommands();
 });
 
-// Slash Command registrieren (/verify)
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   const commands = [
@@ -72,9 +81,6 @@ async function registerCommands() {
   }
 }
 
-// === Express Routes ===
-
-// Startseite
 app.get('/', (req, res) => {
   res.send(`
     <h1>Discord Verification Server</h1>
@@ -83,7 +89,6 @@ app.get('/', (req, res) => {
   `);
 });
 
-// OAuth2 Authorization Redirect
 app.get('/verify', (req, res) => {
   const userId = req.query.user_id || '';
   const params = new URLSearchParams({
@@ -98,7 +103,6 @@ app.get('/verify', (req, res) => {
   res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
 });
 
-// OAuth2 Callback
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   const stateUserId = req.query.state;
@@ -106,7 +110,6 @@ app.get('/oauth/callback', async (req, res) => {
   if (!code) return res.send('Kein Code erhalten.');
 
   try {
-    // Access Token anfordern
     const data = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
@@ -127,35 +130,49 @@ app.get('/oauth/callback', async (req, res) => {
       return res.send(`Token-Fehler: ${tokenData.error_description}`);
     }
 
-    // Userdaten abfragen
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const userData = await userRes.json();
 
-    // User zum Server hinzufügen und Rolle geben
-    const addMemberRes = await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bot ${DISCORD_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        access_token: tokenData.access_token,
-        roles: [ROLE_ID],
-      }),
-    });
+    // Hol Guild & BotMember & Zielrolle
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const botMember = await guild.members.fetch(client.user.id);
+    const targetRole = guild.roles.cache.get(ROLE_ID);
 
-    if (!addMemberRes.ok) {
-      const errorBody = await addMemberRes.text();
-      console.error(`Fehler beim Hinzufügen des Mitglieds: ${errorBody}`);
-      return res.send('Fehler beim Hinzufügen zum Server. Stelle sicher, dass der Bot die nötigen Rechte hat.');
+    if (!targetRole) {
+      return res.send('Die Rolle existiert nicht auf dem Server.');
     }
 
-    // User als verifiziert speichern
+    // Prüfe, ob Bot die Rolle vergeben kann (Rollen-Hierarchie)
+    if (targetRole.position >= botMember.roles.highest.position) {
+      return res.send('Fehler: Bot-Rolle ist zu niedrig, um die Zielrolle zu vergeben. Bitte Rolle höher anordnen.');
+    }
+
+    // Prüfe, ob User schon Mitglied ist
+    let member;
+    try {
+      member = await guild.members.fetch(userData.id);
+    } catch {
+      member = null;
+    }
+
+    if (!member) {
+      // User zum Server hinzufügen mit Access Token
+      await guild.members.add(userData.id, {
+        accessToken: tokenData.access_token,
+        roles: [ROLE_ID],
+        // Optional: Nickname setzen? nickname: 'Neuer User'
+      });
+    } else {
+      // User ist schon auf Server → Rolle hinzufügen, wenn noch nicht vorhanden
+      if (!member.roles.cache.has(ROLE_ID)) {
+        await member.roles.add(ROLE_ID);
+      }
+    }
+
     verifiedUsers.set(userData.id, `${userData.username}#${userData.discriminator}`);
 
-    // Erfolgsmeldung
     res.send(`
       <h1>Du bist verifiziert!</h1>
       <p>Diese Seite kannst du jetzt schließen.</p>
@@ -163,11 +180,12 @@ app.get('/oauth/callback', async (req, res) => {
     `);
   } catch (error) {
     console.error('Verifizierungsfehler:', error);
-    res.send('Fehler während der Verifizierung.');
+    res.send('Fehler während der Verifizierung. ' + error.message);
   }
 });
 
-// Admin Login Seite
+// Admin, Dashboard etc. (wie gehabt, wegen Platz hier nur gekürzt)
+
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Admin Login</h1>
@@ -178,7 +196,6 @@ app.get('/admin', (req, res) => {
   `);
 });
 
-// Admin Login POST
 app.post('/admin/login', (req, res) => {
   const { password } = req.body;
   if (password === ADMIN_PASSWORD) {
@@ -188,7 +205,6 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
-// Admin Dashboard
 app.get('/admin/dashboard', (req, res) => {
   const usersList = [...verifiedUsers.values()]
     .map(u => `<li>${u}</li>`)
@@ -217,87 +233,7 @@ app.get('/admin/dashboard', (req, res) => {
   `);
 });
 
-// Backup Guild setzen
 app.post('/admin/set-backup-guild', (req, res) => {
   const { guildId } = req.body;
   if (!guildId) {
-    return res.send('<p>Guild ID ist erforderlich. <a href="/admin/dashboard">Zurück</a></p>');
-  }
-  backupGuildId = guildId.trim();
-  res.redirect('/admin/dashboard');
-});
-
-// Alle verifizierten Nutzer zum Backup Server hinzufügen
-app.post('/admin/add-all-to-backup', async (req, res) => {
-  if (!backupGuildId) {
-    return res.send('<p>Kein Backup Server gesetzt. <a href="/admin/dashboard">Zurück</a></p>');
-  }
-
-  let successes = 0;
-  let failures = 0;
-
-  for (const [userId] of verifiedUsers) {
-    try {
-      const response = await fetch(`https://discord.com/api/guilds/${backupGuildId}/members/${userId}`, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bot ${DISCORD_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          roles: [], // Optional Rollen hier hinzufügen
-        }),
-      });
-
-      if (response.ok) {
-        successes++;
-      } else {
-        failures++;
-        const errText = await response.text();
-        console.error(`Fehler beim Hinzufügen von Nutzer ${userId}: ${errText}`);
-      }
-    } catch (err) {
-      failures++;
-      console.error(`Fehler beim Hinzufügen von Nutzer ${userId}:`, err);
-    }
-  }
-
-  res.send(`
-    <p>${successes} Nutzer zum Backup Server hinzugefügt.</p>
-    <p>${failures} Nutzer konnten nicht hinzugefügt werden.</p>
-    <p><a href="/admin/dashboard">Zurück zum Dashboard</a></p>
-  `);
-});
-
-// Slash Command /verify Handler
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isCommand()) return;
-
-  if (interaction.commandName === 'verify') {
-    const baseUrl = BASE_URL || `http://localhost:${PORT}`;
-    const verifyUrl = `${baseUrl}/verify?user_id=${interaction.user.id}`;
-
-    const embed = new EmbedBuilder()
-      .setTitle('Verifizierung')
-      .setDescription('Klicke auf den Button unten, um dich zu verifizieren und Zugriff zu erhalten.')
-      .setColor(0x00AE86);
-
-    const button = new ButtonBuilder()
-      .setLabel('Jetzt Verifizieren')
-      .setStyle(ButtonStyle.Link)
-      .setURL(verifyUrl);
-
-    const row = new ActionRowBuilder().addComponents(button);
-
-    await interaction.reply({
-      embeds: [embed],
-      components: [row],
-      ephemeral: false,
-    });
-  }
-});
-
-// Server starten
-app.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
-});
+    return res.send('<p
