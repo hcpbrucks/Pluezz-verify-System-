@@ -59,7 +59,7 @@ app.get('/verify', (req, res) => {
   `);
 });
 
-// OAuth2 Callback Route
+// OAuth2 Callback Route — WICHTIG: Der Pfad MUSS exakt zum REDIRECT_URI passen
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   const stateUserId = req.query.state;
