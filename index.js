@@ -265,21 +265,20 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   if (interaction.commandName === 'verify') {
-    // Permission check: Hier frag ich mich, ob wirklich nur Admins sich verifizieren sollen?
-    // Falls nicht, entferne diese Zeile:
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.reply({
-        content: "You need Administrator permission to use this command.",
-        ephemeral: true,
-      });
-    }
+    // Wenn alle sich verifizieren dürfen, entferne die folgende Zeile:
+    // if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+    //   return interaction.reply({
+    //     content: "You need Administrator permission to use this command.",
+    //     ephemeral: true,
+    //   });
+    // }
 
     const embed = new EmbedBuilder()
       .setTitle('Verify')
       .setDescription('Tap the button below to verify yourself and gain access.')
       .setColor(0x00AE86);
 
-    const verifyUrl = `https://pluezz-verify-system.onrender.com/verify?user_id=${interaction.user.id}`;
+    const verifyUrl = `http://localhost:${PORT}/verify?user_id=${interaction.user.id}`;
 
     const button = new ButtonBuilder()
       .setLabel('Verify Now')
