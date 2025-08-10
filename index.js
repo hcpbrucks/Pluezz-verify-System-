@@ -7,10 +7,6 @@ import {
   REST, 
   Routes, 
   SlashCommandBuilder, 
-  EmbedBuilder, 
-  ButtonBuilder, 
-  ButtonStyle, 
-  ActionRowBuilder,
   PermissionsBitField,
 } from 'discord.js';
 
@@ -25,7 +21,6 @@ const {
   ROLE_ID,
   ADMIN_PASSWORD,
   PORT = 10000,
-  BASE_URL,
 } = process.env;
 
 const app = express();
@@ -44,21 +39,24 @@ client.login(DISCORD_TOKEN);
 client.once('ready', async () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
 
-   // Prüfe, ob Bot die nötigen Rechte in GUILD_ID hat
-const guild = await client.guilds.fetch(GUILD_ID);
-const botMember = await guild.members.fetch(client.user.id);
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const botMember = await guild.members.fetch(client.user.id);
 
-if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-  console.error('Bot hat keine Berechtigung "Rollen verwalten" im Server!');
-}
-if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-  console.warn('Bot hat keine Berechtigung "Server verwalten", könnte Probleme machen.');
-}
-if (!botMember.permissions.has(PermissionsBitField.Flags.ManageMembers)) {
-  console.error('Bot hat keine Berechtigung "Mitglieder verwalten" im Server!');
-}
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
+      console.error('Bot hat keine Berechtigung "Rollen verwalten" im Server!');
+    }
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
+      console.warn('Bot hat keine Berechtigung "Server verwalten", könnte Probleme machen.');
+    }
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ManageGuildMembers)) {
+      console.error('Bot hat keine Berechtigung "Mitglieder verwalten" im Server!');
+    }
+  } catch (error) {
+    console.error('Fehler beim Überprüfen der Berechtigungen:', error);
+  }
 
-registerCommands();
+  await registerCommands();
 });
 
 async function registerCommands() {
@@ -135,7 +133,7 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userRes.json();
 
-    // Hol Guild & BotMember & Zielrolle
+    // Guild & BotMember & Zielrolle
     const guild = await client.guilds.fetch(GUILD_ID);
     const botMember = await guild.members.fetch(client.user.id);
     const targetRole = guild.roles.cache.get(ROLE_ID);
@@ -144,12 +142,10 @@ app.get('/oauth/callback', async (req, res) => {
       return res.send('Die Rolle existiert nicht auf dem Server.');
     }
 
-    // Prüfe, ob Bot die Rolle vergeben kann (Rollen-Hierarchie)
     if (targetRole.position >= botMember.roles.highest.position) {
       return res.send('Fehler: Bot-Rolle ist zu niedrig, um die Zielrolle zu vergeben. Bitte Rolle höher anordnen.');
     }
 
-    // Prüfe, ob User schon Mitglied ist
     let member;
     try {
       member = await guild.members.fetch(userData.id);
@@ -158,14 +154,11 @@ app.get('/oauth/callback', async (req, res) => {
     }
 
     if (!member) {
-      // User zum Server hinzufügen mit Access Token
       await guild.members.add(userData.id, {
         accessToken: tokenData.access_token,
         roles: [ROLE_ID],
-        // Optional: Nickname setzen? nickname: 'Neuer User'
       });
     } else {
-      // User ist schon auf Server → Rolle hinzufügen, wenn noch nicht vorhanden
       if (!member.roles.cache.has(ROLE_ID)) {
         await member.roles.add(ROLE_ID);
       }
@@ -183,8 +176,6 @@ app.get('/oauth/callback', async (req, res) => {
     res.send('Fehler während der Verifizierung. ' + error.message);
   }
 });
-
-// Admin, Dashboard etc. (wie gehabt, wegen Platz hier nur gekürzt)
 
 app.get('/admin', (req, res) => {
   res.send(`
@@ -242,4 +233,8 @@ app.post('/admin/set-backup-guild', (req, res) => {
   }
   backupGuildId = guildId.trim();
   res.redirect('/admin/dashboard');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
 });
