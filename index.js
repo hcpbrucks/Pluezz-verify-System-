@@ -1,5 +1,12 @@
 import express from 'express';
-import { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from 'discord.js';
 import fetch from 'node-fetch';
 
 const app = express();
@@ -19,7 +26,7 @@ const {
   ROLE_ID,
 } = process.env;
 
-// --- Discord Bot Setup ---
+// Discord Client mit Member Intents (wichtig für Rollen)
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
@@ -28,18 +35,22 @@ client.once('ready', () => {
   console.log(`Discord Bot läuft als ${client.user.tag}`);
 });
 
-// Slash Command Handler für /verify
-client.on('interactionCreate', async interaction => {
+// Slash Command Listener
+client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'verify') {
-    const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds.join&prompt=consent`;
+    const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(
+      REDIRECT_URI
+    )}&response_type=code&scope=identify%20guilds.join&prompt=consent`;
 
     const embed = new EmbedBuilder()
       .setTitle('Verify yourself')
-      .setDescription('Click the button below to verify yourself and gain access to all channels.')
+      .setDescription('Click the button below to verify and gain access to all channels.')
       .setColor('#5865F2')
-      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
+      .setImage(
+        'https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png'
+      );
 
     const button = new ButtonBuilder()
       .setLabel('Verify with Discord')
@@ -54,20 +65,21 @@ client.on('interactionCreate', async interaction => {
 
 client.login(DISCORD_TOKEN);
 
-// --- Webserver für OAuth Callback und Admin-Panel ---
-const verifiedUsers = new Map(); // userId => { username, discriminator }
+// Speicher für verified User (Map: userId => { username, discriminator })
+const verifiedUsers = new Map();
 
+// Root Route
 app.get('/', (req, res) => {
   res.send('<h1>Welcome to Pluezz Verify System</h1><p>Use /verify command in Discord to start verification.</p>');
 });
 
-// OAuth2 Callback: Discord sendet Code hierher
+// OAuth Callback
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) return res.send('No code provided.');
 
   try {
-    // Token holen
+    // Token anfordern
     const params = new URLSearchParams();
     params.append('client_id', CLIENT_ID);
     params.append('client_secret', CLIENT_SECRET);
@@ -75,32 +87,34 @@ app.get('/oauth/callback', async (req, res) => {
     params.append('code', code);
     params.append('redirect_uri', REDIRECT_URI);
 
-    const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
     });
+    const tokenData = await tokenResponse.json();
 
-    const tokenData = await tokenRes.json();
-    if (tokenData.error) return res.send(`Error getting token: ${tokenData.error_description}`);
+    if (tokenData.error) {
+      return res.send(`Error getting token: ${tokenData.error_description || tokenData.error}`);
+    }
 
     // Userdaten holen
-    const userRes = await fetch('https://discord.com/api/users/@me', {
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
-    const userData = await userRes.json();
+    const userData = await userResponse.json();
 
-    // Nutzer speichern (für Admin-Panel)
+    // User speichern
     verifiedUsers.set(userData.id, { username: userData.username, discriminator: userData.discriminator });
 
     res.send(`<h2>You are verified, ${userData.username}#${userData.discriminator}!</h2><p>You can close this page now.</p>`);
   } catch (error) {
-    console.error(error);
+    console.error('OAuth Callback Error:', error);
     res.send('Error during OAuth process.');
   }
 });
 
-// Admin Login Page (Passwortgeschützt)
+// Admin Login Page
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Admin Login</h1>
@@ -114,15 +128,13 @@ app.get('/admin', (req, res) => {
 app.post('/admin/login', (req, res) => {
   const password = req.body.password;
   if (password === ADMIN_PASSWORD) {
-    // Für echte Sicherheit sollte hier eine Session oder JWT verwendet werden,
-    // für dein Setup reicht vorerst der Query-Param
     res.redirect('/admin/dashboard?auth=1');
   } else {
     res.send('<p>Wrong password!</p><a href="/admin">Back</a>');
   }
 });
 
-// Admin Dashboard mit Liste der Verified Users und Eingabe für Guild-ID
+// Admin Dashboard mit Userliste
 app.get('/admin/dashboard', (req, res) => {
   if (req.query.auth !== '1') return res.redirect('/admin');
 
@@ -144,7 +156,7 @@ app.get('/admin/dashboard', (req, res) => {
   `);
 });
 
-// Route zum Hinzufügen der User zum Server + Rolle
+// Add Users to Guild + Assign Role
 app.post('/admin/add-to-guild', async (req, res) => {
   if (req.query.auth !== '1') return res.redirect('/admin');
 
@@ -157,21 +169,35 @@ app.post('/admin/add-to-guild', async (req, res) => {
 
   for (const userId of verifiedUsers.keys()) {
     try {
-      await guild.members.add(userId, { roles: [ROLE_ID], reason: 'User verified via Pluezz Verify System' });
+      // Wenn User schon im Server ist, wird er hier geholt, sonst hinzugefügt
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (member) {
+        // User existiert, Rolle hinzufügen, wenn noch nicht da
+        if (!member.roles.cache.has(ROLE_ID)) {
+          await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
+        }
+      } else {
+        // User noch nicht im Server, Einladung via guild.members.add()
+        await guild.members.add(userId, { roles: [ROLE_ID], reason: 'User verified via Pluezz Verify System' });
+      }
       addedCount++;
-    } catch {
+    } catch (error) {
+      console.error(`Failed to add user ${userId}:`, error);
       failedUsers.push(userId);
     }
   }
 
   res.send(`
-    <p>Successfully added ${addedCount} users to the guild.</p>
-    ${failedUsers.length > 0 ? `<p>Failed to add these users: ${failedUsers.join(', ')}</p>` : ''}
+    <p>Successfully processed ${addedCount} users.</p>
+    ${
+      failedUsers.length > 0
+        ? `<p>Failed to add these users: ${failedUsers.join(', ')}</p>`
+        : ''
+    }
     <p><a href="/admin/dashboard?auth=1">Back to dashboard</a></p>
   `);
 });
 
-// Server starten
 app.listen(PORT, () => {
   console.log(`Server läuft auf Port ${PORT}`);
 });
