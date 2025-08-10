@@ -26,9 +26,9 @@ const {
   ROLE_ID,
 } = process.env;
 
-// Discord Client mit Member Intents (wichtig für Rollen)
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
+  partials: ['CHANNEL'], // Damit DMs funktionieren
 });
 
 client.once('ready', () => {
@@ -65,10 +65,8 @@ client.on('interactionCreate', async (interaction) => {
 
 client.login(DISCORD_TOKEN);
 
-// Speicher für verified User (Map: userId => { username, discriminator })
 const verifiedUsers = new Map();
 
-// Root Route
 app.get('/', (req, res) => {
   res.send('<h1>Welcome to Pluezz Verify System</h1><p>Use /verify command in Discord to start verification.</p>');
 });
@@ -134,7 +132,7 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
-// Admin Dashboard mit Userliste
+// Admin Dashboard
 app.get('/admin/dashboard', (req, res) => {
   if (req.query.auth !== '1') return res.redirect('/admin');
 
@@ -153,6 +151,44 @@ app.get('/admin/dashboard', (req, res) => {
       <input name="guildId" value="${GUILD_ID}" /><br /><br />
       <button type="submit">Add all verified users to Guild & Assign Role</button>
     </form>
+    <hr />
+    <h2>Send Backup Server Invites</h2>
+    <form id="inviteForm">
+      <input type="text" id="inviteInput" placeholder="Discord invite link (z.B. https://discord.gg/abc123)" style="width:300px;" required />
+      <button type="submit">Send Invite to Verified Users</button>
+    </form>
+    <p id="status"></p>
+
+    <script>
+      const form = document.getElementById('inviteForm');
+      const status = document.getElementById('status');
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const inviteLink = document.getElementById('inviteInput').value.trim();
+        if (!inviteLink) {
+          alert('Please enter an invite link.');
+          return;
+        }
+        status.textContent = 'Sending invites...';
+
+        try {
+          const res = await fetch('/admin/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invite_link: inviteLink }),
+          });
+          const data = await res.json();
+          if (data.success) {
+            status.textContent = \`Invites sent to \${data.sent} users.\`;
+          } else {
+            status.textContent = \`Error: \${data.error}\`;
+          }
+        } catch (err) {
+          status.textContent = 'Request failed.';
+        }
+      };
+    </script>
   `);
 });
 
@@ -169,15 +205,12 @@ app.post('/admin/add-to-guild', async (req, res) => {
 
   for (const userId of verifiedUsers.keys()) {
     try {
-      // Wenn User schon im Server ist, wird er hier geholt, sonst hinzugefügt
       const member = await guild.members.fetch(userId).catch(() => null);
       if (member) {
-        // User existiert, Rolle hinzufügen, wenn noch nicht da
         if (!member.roles.cache.has(ROLE_ID)) {
           await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
         }
       } else {
-        // User noch nicht im Server, Einladung via guild.members.add()
         await guild.members.add(userId, { roles: [ROLE_ID], reason: 'User verified via Pluezz Verify System' });
       }
       addedCount++;
@@ -198,6 +231,12 @@ app.post('/admin/add-to-guild', async (req, res) => {
   `);
 });
 
-app.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
+// GET verified users (für Admin-Frontend /admin.html)
+app.get('/admin/users', (req, res) => {
+  // Hier evtl. Auth prüfen
+  const users = Array.from(verifiedUsers.values()).map(u => `${u.username}#${u.discriminator}`);
+  res.json(users);
 });
+
+// POST invite to verified users
+app.post('/admin/invite', async (req, res
