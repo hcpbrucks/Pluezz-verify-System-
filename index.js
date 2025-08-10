@@ -281,6 +281,12 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
       ${failedUsers.length > 0 ? `<p>Fehler bei folgenden Nutzern: ${failedUsers.join(', ')}</p>` : ''}
       <p><a href="/admin/dashboard">Zurück zum Dashboard</a></p>
     `);
-  } catch (error) {
+    } catch (error) {
     console.error('Fehler beim Zugriff auf Backup Server:', error);
     res.send(`<p>Fehler beim Zugriff auf Backup Server: ${error.message}</p><p><a href="/admin/dashboard">Zurück</a></p>`);
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
+});
