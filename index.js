@@ -1,182 +1,177 @@
 import express from 'express';
-import { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, Events } from 'discord.js';
+import { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import fetch from 'node-fetch';
 
 const app = express();
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
 
-// Deine Discord-Bot-Token und Variablen (aus Render env vars)
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;      // z.B. "DISCO Token"
-const GUILD_ID = process.env.GUILD_ID;                // z.B. "Guild ID"
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;    // z.B. "Secret ID" als Admin-Passwort
+const {
+  ADMIN_PASSWORD,
+  BASE_URL,
+  CLIENT_ID,
+  CLIENT_SECRET,
+  DISCORD_TOKEN,
+  GUILD_ID,
+  REDIRECT_URI,
+  ROLE_ID,
+} = process.env;
 
+// --- Discord Bot Setup ---
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-// --- Discord Bot Setup ---
-
-client.once('ready', async () => {
-  console.log(`Discord Bot ist online als ${client.user.tag}`);
-
-  // Hier kannst du z.B. die "public" Embed-Message in deinem Server posten/aktualisieren
-  // oder beim Slash-Befehl auslösen lassen (siehe weiter unten)
+client.once('ready', () => {
+  console.log(`Discord Bot läuft als ${client.user.tag}`);
 });
 
-// Slash-Command /verify zum Senden der Embed-Message mit Button an alle
-client.on(Events.InteractionCreate, async (interaction) => {
+// Slash Command Handler (einfach nur /verify)
+client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'verify') {
+    const verifyUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=identify%20guilds.join&prompt=consent`;
+
     const embed = new EmbedBuilder()
-      .setColor('#0099ff')
-      .setTitle('Welcome to the Verification!')
-      .setDescription('Click the button below to verify yourself and get access to the server.')
-      .setFooter({ text: 'Pluezz Verify System' });
+      .setTitle('Verify yourself')
+      .setDescription('Click the button below to verify and join the server.')
+      .setColor('#5865F2')
+      .setImage('https://i.imgur.com/JX6vZQN.png'); // Beispielbild, kannst du anpassen
 
     const button = new ButtonBuilder()
-      .setCustomId('verify_button')
-      .setLabel('Verify Me')
-      .setStyle(ButtonStyle.Primary);
+      .setLabel('Verify with Discord')
+      .setStyle(ButtonStyle.Link)
+      .setURL(verifyUrl);
 
     const row = new ActionRowBuilder().addComponents(button);
 
-    await interaction.reply({ embeds: [embed], components: [row], ephemeral: false }); // öffentlich sichtbar
+    // Nachricht öffentlich, also nicht ephemeral
+    await interaction.reply({ embeds: [embed], components: [row], ephemeral: false });
   }
 });
 
-// Button-Handler: Wenn Nutzer auf "Verify Me" klicken
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
+client.login(DISCORD_TOKEN);
 
-  if (interaction.customId === 'verify_button') {
-    const userId = interaction.user.id;
-    // Hier leite ich auf deine Webseite weiter mit User-ID
-    await interaction.reply({
-      content: `You are verified! Please continue your verification on the website: https://pluezz-verify-system.onrender.com/verify?user=${userId}`,
-      ephemeral: true, // Nur der Klicker sieht das
-    });
-  }
-});
+// --- Webserver für OAuth Callback und Admin-Panel ---
+const verifiedUsers = new Map(); // userId => { username, discriminator }
 
-// --- Express Webserver ---
-// Startseite (optional)
 app.get('/', (req, res) => {
-  res.send('<h1>Pluezz Verify System</h1><p>Bitte nutze die /verify Funktion im Discord.</p>');
+  res.send('<h1>Welcome to Pluezz Verify System</h1><p>Use /verify command in Discord to start verification.</p>');
 });
 
-// Verifizierungsseite, auf der User nach Klick vom Discord weitergeleitet werden
-app.get('/verify', (req, res) => {
-  const userId = req.query.user;
-  if (!userId) {
-    return res.send('<p>Keine User-ID übergeben!</p>');
+// OAuth2 Callback: Discord sendet Code hierher
+app.get('/oauth/callback', async (req, res) => {
+  const code = req.query.code;
+  if (!code) return res.send('No code provided.');
+
+  try {
+    // Token holen
+    const params = new URLSearchParams();
+    params.append('client_id', CLIENT_ID);
+    params.append('client_secret', CLIENT_SECRET);
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code);
+    params.append('redirect_uri', REDIRECT_URI);
+
+    const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) return res.send(`Error getting token: ${tokenData.error_description}`);
+
+    // Userdaten holen
+    const userRes = await fetch('https://discord.com/api/users/@me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const userData = await userRes.json();
+
+    // Nutzer speichern (für Admin-Panel)
+    verifiedUsers.set(userData.id, { username: userData.username, discriminator: userData.discriminator });
+
+    res.send(`<h2>You are verified, ${userData.username}#${userData.discriminator}!</h2><p>You can close this page now.</p>`);
+  } catch (error) {
+    console.error(error);
+    res.send('Error during OAuth process.');
   }
-  // Hier kannst du z.B. nach erfolgreicher Verifizierung den Nutzerstatus speichern
-  res.send(`
-    <h2>You are verified!</h2>
-    <p>You can now close this page or return to Discord.</p>
-  `);
 });
 
-// Admin-Panel zum Einsehen, wer sich verifiziert hat, und Guild-ID eingeben
+// Admin Login Page (Passwortgeschützt)
 app.get('/admin', (req, res) => {
   res.send(`
-    <h1>Admin Panel - Login</h1>
+    <h1>Admin Login</h1>
     <form method="POST" action="/admin/login">
-      <input type="password" name="password" placeholder="Admin Password" required/>
+      <input name="password" type="password" placeholder="Password" required />
       <button type="submit">Login</button>
     </form>
   `);
 });
 
-let loggedIn = false;
-
 app.post('/admin/login', (req, res) => {
-  const { password } = req.body;
+  const password = req.body.password;
   if (password === ADMIN_PASSWORD) {
-    loggedIn = true;
-    res.redirect('/admin/dashboard');
+    // Einfach Session oder Token hier nicht implementiert, einfach Redirect mit Parameter
+    res.redirect('/admin/dashboard?auth=1');
   } else {
-    res.send('<p>Falsches Passwort. <a href="/admin">Zurück</a></p>');
+    res.send('<p>Wrong password!</p><a href="/admin">Back</a>');
   }
 });
 
+// Admin Dashboard mit Liste der Verified Users und Eingabe für Guild-ID
 app.get('/admin/dashboard', (req, res) => {
-  if (!loggedIn) {
-    return res.redirect('/admin');
-  }
+  if (req.query.auth !== '1') return res.redirect('/admin');
 
-  // Hier kannst du z.B. deine verifizierten Nutzer aus einer DB oder in-memory Liste ausgeben
-  // Beispiel:
-  const verifiedUsers = ['123456789012345678', '987654321098765432']; // Platzhalter
+  let userListHtml = '';
+  for (const [id, user] of verifiedUsers.entries()) {
+    userListHtml += `<li>${user.username}#${user.discriminator} (ID: ${id})</li>`;
+  }
+  if (!userListHtml) userListHtml = '<li>No verified users yet.</li>';
 
   res.send(`
     <h1>Admin Dashboard</h1>
-    <p>Verifizierte Nutzer:</p>
-    <ul>
-      ${verifiedUsers.map(id => `<li>${id}</li>`).join('')}
-    </ul>
-    <form method="POST" action="/admin/add-to-guild">
-      <input name="guildId" placeholder="Guild ID eingeben" required/>
-      <button type="submit">Nutzer zum Server hinzufügen</button>
+    <h2>Verified Users:</h2>
+    <ul>${userListHtml}</ul>
+    <form method="POST" action="/admin/add-to-guild?auth=1">
+      <label>Guild ID (default from env):</label><br />
+      <input name="guildId" value="${GUILD_ID}" /><br /><br />
+      <button type="submit">Add all verified users to Guild & Assign Role</button>
     </form>
   `);
 });
 
-// Endpoint zum Hinzufügen der User zum Discord-Server via Bot
+// Route zum Hinzufügen der User zum Server + Rolle
 app.post('/admin/add-to-guild', async (req, res) => {
-  if (!loggedIn) return res.redirect('/admin');
+  if (req.query.auth !== '1') return res.redirect('/admin');
 
-  const { guildId } = req.body;
+  const guildId = req.body.guildId || GUILD_ID;
+  const guild = await client.guilds.fetch(guildId).catch(() => null);
+  if (!guild) return res.send('<p>Guild not found!</p><a href="/admin/dashboard?auth=1">Back</a>');
 
-  if (!guildId) {
-    return res.send('<p>Keine Guild ID eingegeben! <a href="/admin/dashboard">Zurück</a></p>');
-  }
+  let addedCount = 0;
+  let failedUsers = [];
 
-  try {
-    const guild = await client.guilds.fetch(guildId);
-    if (!guild) return res.send('<p>Guild nicht gefunden! <a href="/admin/dashboard">Zurück</a></p>');
-
-    // Beispiel: Alle verifizierten Nutzer hinzufügen (hier statisch)
-    const verifiedUsers = ['123456789012345678', '987654321098765432']; // Muss dynamisch aus deiner DB kommen
-
-    let addedCount = 0;
-    const failedUsers = [];
-
-    for (const userId of verifiedUsers) {
-      try {
-        const member = await guild.members.fetch(userId);
-        if (!member) {
-          // Mitglied hinzufügen (Einladung erstellen oder Bot-Invite)
-          // Hier kannst du auch eine Einladung per DM senden, falls Bot nicht direkt hinzufügen kann
-          // ACHTUNG: Discord-Bots können Nutzer nicht einfach zu Guilds hinzufügen, Einladung notwendig!
-          // Alternative: Einladung generieren und Link an Nutzer senden
-          // Hier nur Beispiel-Logik
-          console.log(`Kann Nutzer ${userId} nicht direkt hinzufügen, Einladung manuell senden.`);
-          failedUsers.push(userId);
-          continue;
-        }
-        addedCount++;
-      } catch {
-        failedUsers.push(userId);
-      }
+  for (const userId of verifiedUsers.keys()) {
+    try {
+      await guild.members.add(userId, { roles: [ROLE_ID], reason: 'User verified via Pluezz Verify System' });
+      addedCount++;
+    } catch {
+      failedUsers.push(userId);
     }
-
-    res.send(`
-      <p>Erfolgreich ${addedCount} Nutzer zum Backup Server hinzugefügt.</p>
-      ${failedUsers.length > 0 ? `<p>Fehler bei folgenden Nutzern: ${failedUsers.join(', ')}</p>` : ''}
-      <p><a href="/admin/dashboard">Zurück zum Dashboard</a></p>
-    `);
-  } catch (error) {
-    console.error('Fehler beim Zugriff auf Guild:', error);
-    res.send(`<p>Fehler beim Zugriff auf Guild: ${error.message}</p><p><a href="/admin/dashboard">Zurück</a></p>`);
   }
+
+  res.send(`
+    <p>Successfully added ${addedCount} users to the guild.</p>
+    ${failedUsers.length > 0 ? `<p>Failed to add these users: ${failedUsers.join(', ')}</p>` : ''}
+    <p><a href="/admin/dashboard?auth=1">Back to dashboard</a></p>
+  `);
 });
 
+// Server starten
 app.listen(PORT, () => {
   console.log(`Server läuft auf Port ${PORT}`);
 });
-
-client.login(DISCORD_TOKEN);
