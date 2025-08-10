@@ -27,12 +27,7 @@ const {
 } = process.env;
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
   partials: ['CHANNEL'], // Für DMs
 });
 
@@ -53,9 +48,7 @@ client.on('interactionCreate', async (interaction) => {
       .setTitle('Verify yourself')
       .setDescription('Click the button below to verify and gain access to all channels.')
       .setColor('#5865F2')
-      .setImage(
-        'https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png'
-      );
+      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
 
     const button = new ButtonBuilder()
       .setLabel('Verify with Discord')
@@ -70,7 +63,6 @@ client.on('interactionCreate', async (interaction) => {
 
 client.login(DISCORD_TOKEN);
 
-// Statt nur Username speichern wir jetzt auch den access_token für spätere Nutzung
 const verifiedUsers = new Map();
 
 app.get('/', (req, res) => {
@@ -106,12 +98,7 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userResponse.json();
 
-    // Hier speichern wir jetzt auch den accessToken!
-    verifiedUsers.set(userData.id, {
-      username: userData.username,
-      discriminator: userData.discriminator,
-      accessToken: tokenData.access_token,
-    });
+    verifiedUsers.set(userData.id, { username: userData.username, discriminator: userData.discriminator });
 
     res.send(`<h2>You are verified, ${userData.username}#${userData.discriminator}!</h2><p>You can close this page now.</p>`);
   } catch (error) {
@@ -211,7 +198,7 @@ app.post('/admin/add-to-guild', async (req, res) => {
   let addedCount = 0;
   let failedUsers = [];
 
-  for (const [userId, user] of verifiedUsers.entries()) {
+  for (const userId of verifiedUsers.keys()) {
     try {
       const member = await guild.members.fetch(userId).catch(() => null);
       if (member) {
@@ -219,11 +206,7 @@ app.post('/admin/add-to-guild', async (req, res) => {
           await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
         }
       } else {
-        await guild.members.add(userId, {
-          accessToken: user.accessToken,
-          roles: [ROLE_ID],
-          reason: 'User verified via Pluezz Verify System',
-        });
+        await guild.members.add(userId, { roles: [ROLE_ID], reason: 'User verified via Pluezz Verify System' });
       }
       addedCount++;
     } catch (error) {
@@ -268,4 +251,18 @@ app.post('/admin/invite', async (req, res) => {
   for (const userId of verifiedUsers.keys()) {
     try {
       const user = await client.users.fetch(userId);
-      await user.send(`You
+      await user.send(`You are invited to join our backup server: ${inviteLink}`);
+      sentCount++;
+    } catch (error) {
+      console.error(`Failed to send invite to user ${userId}:`, error);
+      failedCount++;
+    }
+  }
+
+  res.json({ success: true, sent: sentCount, failed: failedCount });
+});
+
+// Starte den Express-Server
+app.listen(PORT, () => {
+  console.log(`Express Server läuft auf Port ${PORT}`);
+});
