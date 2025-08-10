@@ -1,7 +1,18 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { 
+  Client, 
+  GatewayIntentBits, 
+  REST, 
+  Routes, 
+  SlashCommandBuilder, 
+  EmbedBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  ActionRowBuilder,
+  PermissionsBitField
+} from 'discord.js';
 
 dotenv.config();
 
@@ -38,22 +49,22 @@ async function registerCommands() {
   const commands = [
     new SlashCommandBuilder()
       .setName('verify')
-      .setDescription('Erhalte den Verifizierungslink'),
+      .setDescription('Get the verification link'),
   ].map(cmd => cmd.toJSON());
 
   try {
-    console.log('Registriere Slash-Commands...');
+    console.log('Registering slash commands...');
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands },
     );
-    console.log('Slash-Commands erfolgreich registriert!');
+    console.log('Slash commands registered successfully!');
   } catch (error) {
-    console.error('Fehler bei Registrierung der Slash-Commands:', error);
+    console.error('Error registering slash commands:', error);
   }
 }
 
-// In-Memory Speicher für verifizierte User (username oder id)
+// In-Memory storage for verified users (username or id)
 const verifiedUsers = new Set();
 
 // Express Routes
@@ -62,12 +73,12 @@ const verifiedUsers = new Set();
 app.get('/', (req, res) => {
   res.send(`
     <h1>Discord Verification Server</h1>
-    <p>Gehe zu <a href="/verify">/verify</a> um dich zu verifizieren.</p>
-    <p>Admin? <a href="/admin">Hier einloggen</a></p>
+    <p>Go to <a href="/verify">/verify</a> to verify yourself.</p>
+    <p>Admin? <a href="/admin">Login here</a></p>
   `);
 });
 
-// /verify als Webseite — kannst du z.B. auch im Bot verwenden
+// /verify route - shows verification link
 app.get('/verify', (req, res) => {
   const userId = req.query.user_id || 'unknown';
   const params = new URLSearchParams({
@@ -82,7 +93,7 @@ app.get('/verify', (req, res) => {
 
   res.send(`
     <h1>Verification</h1>
-    <p>Klicke auf den Link, um dich via Discord zu verifizieren:</p>
+    <p>Click the link below to verify yourself via Discord:</p>
     <a href="${discordAuthUrl}">Discord Login</a>
   `);
 });
@@ -92,10 +103,10 @@ app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   const stateUserId = req.query.state;
 
-  if (!code) return res.send('Kein Code erhalten.');
+  if (!code) return res.send('No code received.');
 
   try {
-    // Token anfordern
+    // Request token
     const data = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
@@ -113,16 +124,16 @@ app.get('/oauth/callback', async (req, res) => {
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      return res.send(`Fehler beim Token: ${tokenData.error_description}`);
+      return res.send(`Token error: ${tokenData.error_description}`);
     }
 
-    // Userdaten abfragen
+    // Get user data
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const userData = await userRes.json();
 
-    // User zum Guild hinzufügen mit Rolle
+    // Add user to guild with role
     await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
       method: 'PUT',
       headers: {
@@ -135,26 +146,26 @@ app.get('/oauth/callback', async (req, res) => {
       }),
     });
 
-    // User als verifiziert speichern
+    // Save user as verified
     verifiedUsers.add(`${userData.username}#${userData.discriminator}`);
 
-    // Erfolgsseite anzeigen
+    // Success page
     res.send(`
-      <h1>Du bist verifiziert!</h1>
-      <p>Du kannst diese Seite jetzt schließen.</p>
+      <h1>You are verified!</h1>
+      <p>You can now close this page.</p>
     `);
   } catch (error) {
     console.error(error);
-    res.send('Fehler während des Verifizierungsprozesses.');
+    res.send('Error during the verification process.');
   }
 });
 
-// Admin Login Seite
+// Admin Login Page
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Admin Login</h1>
     <form method="POST" action="/admin/login">
-      <input name="password" type="password" placeholder="Passwort" required/>
+      <input name="password" type="password" placeholder="Password" required/>
       <button type="submit">Login</button>
     </form>
   `);
@@ -166,7 +177,7 @@ app.post('/admin/login', (req, res) => {
   if (password === ADMIN_PASSWORD) {
     res.redirect('/admin/dashboard');
   } else {
-    res.send('<p>Falsches Passwort. <a href="/admin">Zurück</a></p>');
+    res.send('<p>Wrong password. <a href="/admin">Back</a></p>');
   }
 });
 
@@ -174,28 +185,53 @@ app.post('/admin/login', (req, res) => {
 app.get('/admin/dashboard', (req, res) => {
   res.send(`
     <h1>Admin Dashboard</h1>
-    <h2>Verifizierte User</h2>
+    <h2>Verified Users</h2>
     <ul>
       ${[...verifiedUsers].map(u => `<li>${u}</li>`).join('')}
     </ul>
-    <p><a href="/">Zur Startseite</a></p>
+    <p><a href="/">Back to Home</a></p>
   `);
 });
 
-// Event Listener für Slash-Commands
+// Slash Command Interaction
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   if (interaction.commandName === 'verify') {
-    const verifyUrl = `https://deinedomain.com/verify?user_id=${interaction.user.id}`;
+    // Check admin permission
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      return interaction.reply({
+        content: "You need Administrator permission to use this command.",
+        ephemeral: true,
+      });
+    }
+
+    // Create Embed
+    const embed = new EmbedBuilder()
+      .setTitle('Verify')
+      .setDescription('Tap the button below to verify yourself and gain access.')
+      .setColor(0x00AE86);
+
+    // Button with link
+    const verifyUrl = `https://pluezz-verify-system.onrender.com/verify?user_id=${interaction.user.id}`;
+
+    const button = new ButtonBuilder()
+      .setLabel('Verify Now')
+      .setStyle(ButtonStyle.Link)
+      .setURL(verifyUrl);
+
+    const row = new ActionRowBuilder().addComponents(button);
+
+    // Send public message
     await interaction.reply({
-      content: `Klicke hier, um dich zu verifizieren: ${verifyUrl}`,
-      ephemeral: true,
+      embeds: [embed],
+      components: [row],
+      ephemeral: false,
     });
   }
 });
 
-// Server starten
+// Start server
 app.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
