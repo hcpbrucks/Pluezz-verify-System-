@@ -10,8 +10,7 @@ import {
   EmbedBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  ActionRowBuilder,
-  PermissionsBitField
+  ActionRowBuilder 
 } from 'discord.js';
 
 dotenv.config();
@@ -25,7 +24,7 @@ const {
   ROLE_ID,
   ADMIN_PASSWORD,
   PORT = 10000,
-  BASE_URL,  // NEU
+  BASE_URL,
 } = process.env;
 
 const app = express();
@@ -56,7 +55,7 @@ async function registerCommands() {
     console.log('Registering slash commands...');
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands },
+      { body: commands }
     );
     console.log('Slash commands registered successfully!');
   } catch (error) {
@@ -64,20 +63,21 @@ async function registerCommands() {
   }
 }
 
-// In-memory storage
-const verifiedUsers = new Map(); // key: userId, value: username#discriminator
-let backupGuildId = ''; // Backup Server Guild ID
+// Speicher für verifizierte Nutzer (in-memory)
+const verifiedUsers = new Map(); // userId -> username#discriminator
+let backupGuildId = '';
 
-// Root Route
+// --- Express-Routen ---
+
 app.get('/', (req, res) => {
   res.send(`
     <h1>Discord Verification Server</h1>
-    <p>Go to <a href="/verify">/verify</a> to verify yourself.</p>
-    <p>Admin? <a href="/admin">Login here</a></p>
+    <p>Gehe zu <a href="/verify">/verify</a>, um dich zu verifizieren.</p>
+    <p>Admin? <a href="/admin">Hier einloggen</a></p>
   `);
 });
 
-// /verify Route -> redirect zu Discord OAuth2 mit State = User ID falls vorhanden
+// Redirect zu Discord OAuth2 mit state = userId
 app.get('/verify', (req, res) => {
   const userId = req.query.user_id || '';
   const params = new URLSearchParams({
@@ -92,12 +92,12 @@ app.get('/verify', (req, res) => {
   res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
 });
 
-// OAuth2 Callback Route
+// OAuth2 Callback
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   const stateUserId = req.query.state;
 
-  if (!code) return res.send('No code received.');
+  if (!code) return res.send('Kein Code erhalten.');
 
   try {
     const data = new URLSearchParams({
@@ -114,11 +114,10 @@ app.get('/oauth/callback', async (req, res) => {
       body: data,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
-
     const tokenData = await tokenRes.json();
 
     if (tokenData.error) {
-      return res.send(`Token error: ${tokenData.error_description}`);
+      return res.send(`Token-Fehler: ${tokenData.error_description}`);
     }
 
     const userRes = await fetch('https://discord.com/api/users/@me', {
@@ -126,7 +125,7 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userRes.json();
 
-    // Add user to main guild with role
+    // User zum Guild hinzufügen & Rolle vergeben
     const addMemberRes = await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
       method: 'PUT',
       headers: {
@@ -141,30 +140,31 @@ app.get('/oauth/callback', async (req, res) => {
 
     if (!addMemberRes.ok) {
       const errorBody = await addMemberRes.text();
-      console.error(`Failed to add member to guild: ${errorBody}`);
-      return res.send('Failed to add you to the guild. Make sure the bot has the necessary permissions.');
+      console.error(`Fehler beim Hinzufügen des Mitglieds: ${errorBody}`);
+      return res.send('Fehler beim Hinzufügen zum Server. Stelle sicher, dass der Bot die nötigen Rechte hat.');
     }
 
-    // Save user as verified
+    // Nutzer als verifiziert speichern
     verifiedUsers.set(userData.id, `${userData.username}#${userData.discriminator}`);
 
     res.send(`
-      <h1>You are verified!</h1>
-      <p>You can now close this page.</p>
-      <p><a href="/">Back to Home</a></p>
+      <h1>Du bist verifiziert!</h1>
+      <p>Diese Seite kannst du jetzt schließen.</p>
+      <p><a href="/">Zurück zur Startseite</a></p>
     `);
+
   } catch (error) {
-    console.error('Verification error:', error);
-    res.send('Error during the verification process.');
+    console.error('Verifizierungsfehler:', error);
+    res.send('Fehler während der Verifizierung.');
   }
 });
 
-// Admin Login Page
+// Admin Login Seite
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Admin Login</h1>
     <form method="POST" action="/admin/login">
-      <input name="password" type="password" placeholder="Password" required/>
+      <input name="password" type="password" placeholder="Passwort" required />
       <button type="submit">Login</button>
     </form>
   `);
@@ -176,7 +176,7 @@ app.post('/admin/login', (req, res) => {
   if (password === ADMIN_PASSWORD) {
     res.redirect('/admin/dashboard');
   } else {
-    res.send('<p>Wrong password. <a href="/admin">Back</a></p>');
+    res.send('<p>Falsches Passwort. <a href="/admin">Zurück</a></p>');
   }
 });
 
@@ -192,37 +192,37 @@ app.get('/admin/dashboard', (req, res) => {
     <h2>Backup Server</h2>
     <form method="POST" action="/admin/set-backup-guild">
       <label>Backup Server Guild ID:</label><br/>
-      <input name="guildId" type="text" value="${backupGuildId}" placeholder="Enter Guild ID" required/>
-      <button type="submit">Set Backup Server</button>
+      <input name="guildId" type="text" value="${backupGuildId}" placeholder="Guild ID eingeben" required/>
+      <button type="submit">Backup Server setzen</button>
     </form>
 
-    <h2>Verified Users (${verifiedUsers.size})</h2>
+    <h2>Verifizierte Nutzer (${verifiedUsers.size})</h2>
     <ul>${usersList}</ul>
 
     ${backupGuildId ? `
       <form method="POST" action="/admin/add-all-to-backup">
-        <button type="submit">Add all verified users to Backup Server</button>
+        <button type="submit">Alle verifizierten Nutzer zum Backup Server hinzufügen</button>
       </form>
-    ` : '<p>No Backup Server set.</p>'}
+    ` : '<p>Kein Backup Server gesetzt.</p>'}
 
-    <p><a href="/">Back to Home</a></p>
+    <p><a href="/">Zurück zur Startseite</a></p>
   `);
 });
 
-// Set Backup Guild POST
+// Backup Guild setzen
 app.post('/admin/set-backup-guild', (req, res) => {
   const { guildId } = req.body;
   if (!guildId) {
-    return res.send('<p>Guild ID is required. <a href="/admin/dashboard">Back</a></p>');
+    return res.send('<p>Guild ID ist erforderlich. <a href="/admin/dashboard">Zurück</a></p>');
   }
   backupGuildId = guildId.trim();
   res.redirect('/admin/dashboard');
 });
 
-// Add all verified users to backup guild POST
+// Alle verifizierten Nutzer zum Backup Server hinzufügen
 app.post('/admin/add-all-to-backup', async (req, res) => {
   if (!backupGuildId) {
-    return res.send('<p>No Backup Server set. <a href="/admin/dashboard">Back</a></p>');
+    return res.send('<p>Kein Backup Server gesetzt. <a href="/admin/dashboard">Zurück</a></p>');
   }
 
   let successes = 0;
@@ -237,7 +237,7 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          roles: [], // Optional: Rollen hinzufügen, falls gewünscht
+          roles: [], // Optional Rollen hier hinzufügen
         }),
       });
 
@@ -245,37 +245,37 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
         successes++;
       } else {
         failures++;
-        const errorText = await response.text();
-        console.error(`Failed to add user ${userId} to backup guild: ${errorText}`);
+        const errText = await response.text();
+        console.error(`Fehler beim Hinzufügen von Nutzer ${userId}: ${errText}`);
       }
     } catch (err) {
       failures++;
-      console.error(`Error adding user ${userId}:`, err);
+      console.error(`Fehler beim Hinzufügen von Nutzer ${userId}:`, err);
     }
   }
 
   res.send(`
-    <p>Added ${successes} users to Backup Server.</p>
-    <p>Failed to add ${failures} users.</p>
-    <p><a href="/admin/dashboard">Back to Dashboard</a></p>
+    <p>${successes} Nutzer zum Backup Server hinzugefügt.</p>
+    <p>${failures} Nutzer konnten nicht hinzugefügt werden.</p>
+    <p><a href="/admin/dashboard">Zurück zum Dashboard</a></p>
   `);
 });
 
-// Slash Command Interaction
+// Slash Command /verify
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   if (interaction.commandName === 'verify') {
     const baseUrl = BASE_URL || `http://localhost:${PORT}`;
-    const verifyUrl = `https://pluezz-verify-system.onrender.com/verify?user_id=${interaction.user.id}`;
+    const verifyUrl = `${baseUrl}/verify?user_id=${interaction.user.id}`;
 
     const embed = new EmbedBuilder()
-      .setTitle('Verify')
-      .setDescription('Tap the button below to verify yourself and gain access.')
+      .setTitle('Verifizierung')
+      .setDescription('Klicke auf den Button unten, um dich zu verifizieren und Zugriff zu erhalten.')
       .setColor(0x00AE86);
 
     const button = new ButtonBuilder()
-      .setLabel('Verify Now')
+      .setLabel('Jetzt Verifizieren')
       .setStyle(ButtonStyle.Link)
       .setURL(verifyUrl);
 
@@ -289,7 +289,7 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// Start server
+// Server starten
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server läuft auf Port ${PORT}`);
 });
