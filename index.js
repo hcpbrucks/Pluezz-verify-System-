@@ -15,6 +15,7 @@ import {
 
 dotenv.config();
 
+// Umgebungsvariablen laden
 const {
   DISCORD_TOKEN,
   CLIENT_ID,
@@ -27,6 +28,7 @@ const {
   BASE_URL,
 } = process.env;
 
+// Express Setup
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -36,13 +38,20 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
+// Zwischenspeicher für verifizierte Nutzer (userId => username#discriminator)
+const verifiedUsers = new Map();
+let backupGuildId = ''; // Backup-Guild ID
+
+// Bot Login
 client.login(DISCORD_TOKEN);
 
+// Sobald Discord-Client bereit ist
 client.once('ready', () => {
   console.log(`Discord Client ready: ${client.user.tag}`);
   registerCommands();
 });
 
+// Slash Command registrieren (/verify)
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   const commands = [
@@ -63,12 +72,9 @@ async function registerCommands() {
   }
 }
 
-// Speicher für verifizierte Nutzer (in-memory)
-const verifiedUsers = new Map(); // userId -> username#discriminator
-let backupGuildId = '';
+// === Express Routes ===
 
-// --- Express-Routen ---
-
+// Startseite
 app.get('/', (req, res) => {
   res.send(`
     <h1>Discord Verification Server</h1>
@@ -77,7 +83,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Redirect zu Discord OAuth2 mit state = userId
+// OAuth2 Authorization Redirect
 app.get('/verify', (req, res) => {
   const userId = req.query.user_id || '';
   const params = new URLSearchParams({
@@ -100,6 +106,7 @@ app.get('/oauth/callback', async (req, res) => {
   if (!code) return res.send('Kein Code erhalten.');
 
   try {
+    // Access Token anfordern
     const data = new URLSearchParams({
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
@@ -120,12 +127,13 @@ app.get('/oauth/callback', async (req, res) => {
       return res.send(`Token-Fehler: ${tokenData.error_description}`);
     }
 
+    // Userdaten abfragen
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const userData = await userRes.json();
 
-    // User zum Guild hinzufügen & Rolle vergeben
+    // User zum Server hinzufügen und Rolle geben
     const addMemberRes = await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
       method: 'PUT',
       headers: {
@@ -144,15 +152,15 @@ app.get('/oauth/callback', async (req, res) => {
       return res.send('Fehler beim Hinzufügen zum Server. Stelle sicher, dass der Bot die nötigen Rechte hat.');
     }
 
-    // Nutzer als verifiziert speichern
+    // User als verifiziert speichern
     verifiedUsers.set(userData.id, `${userData.username}#${userData.discriminator}`);
 
+    // Erfolgsmeldung
     res.send(`
       <h1>Du bist verifiziert!</h1>
       <p>Diese Seite kannst du jetzt schließen.</p>
       <p><a href="/">Zurück zur Startseite</a></p>
     `);
-
   } catch (error) {
     console.error('Verifizierungsfehler:', error);
     res.send('Fehler während der Verifizierung.');
@@ -261,7 +269,7 @@ app.post('/admin/add-all-to-backup', async (req, res) => {
   `);
 });
 
-// Slash Command /verify
+// Slash Command /verify Handler
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
