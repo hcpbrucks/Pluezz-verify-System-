@@ -25,6 +25,7 @@ const {
   ROLE_ID,
   ADMIN_PASSWORD,
   PORT = 10000,
+  BASE_URL,  // NEU
 } = process.env;
 
 const app = express();
@@ -265,20 +266,13 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   if (interaction.commandName === 'verify') {
-    // Wenn alle sich verifizieren dürfen, entferne die folgende Zeile:
-    // if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-    //   return interaction.reply({
-    //     content: "You need Administrator permission to use this command.",
-    //     ephemeral: true,
-    //   });
-    // }
+    const baseUrl = BASE_URL || `http://localhost:${PORT}`;
+    const verifyUrl = `${baseUrl}/verify?user_id=${interaction.user.id}`;
 
     const embed = new EmbedBuilder()
       .setTitle('Verify')
       .setDescription('Tap the button below to verify yourself and gain access.')
       .setColor(0x00AE86);
-
-    const verifyUrl = `http://localhost:${PORT}/verify?user_id=${interaction.user.id}`;
 
     const button = new ButtonBuilder()
       .setLabel('Verify Now')
