@@ -42,10 +42,8 @@ client.once('ready', () => {
   registerCommands();
 });
 
-// Registriere den /verify Slash-Command nur für deinen Server (Guild)
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-
   const commands = [
     new SlashCommandBuilder()
       .setName('verify')
@@ -64,10 +62,9 @@ async function registerCommands() {
   }
 }
 
-// In-Memory storage for verified users (username or id)
-const verifiedUsers = new Set();
-
-// Express Routes
+// In-memory storage
+const verifiedUsers = new Map(); // key: userId, value: username#discriminator
+let backupGuildId = ''; // Backup Server Guild ID
 
 // Root Route
 app.get('/', (req, res) => {
@@ -78,9 +75,9 @@ app.get('/', (req, res) => {
   `);
 });
 
-// /verify route - shows verification link
+// /verify Route -> direkt Redirect zu Discord OAuth2 mit State = User ID falls vorhanden
 app.get('/verify', (req, res) => {
-  const userId = req.query.user_id || 'unknown';
+  const userId = req.query.user_id || '';
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
@@ -89,13 +86,9 @@ app.get('/verify', (req, res) => {
     state: userId,
     prompt: 'consent',
   });
-  const discordAuthUrl = 'https://discord.com/oauth2/authorize?client_id=1403760209746460782&response_type=code&redirect_uri=https%3A%2F%2Fpluezz-verify-system.onrender.com%2Foauth%2Fcallback&scope=identify+guilds.join';
 
-  res.send(`
-    <h1>Verification</h1>
-    <p>Click the link below to verify yourself via Discord:</p>
-    <a href="${discordAuthUrl}">Discord Login</a>
-  `);
+  // Redirect direkt zu Discord OAuth
+  res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
 });
 
 // OAuth2 Callback Route
@@ -133,7 +126,7 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userRes.json();
 
-    // Add user to guild with role
+    // Add user to main guild with role
     await fetch(`https://discord.com/api/guilds/${GUILD_ID}/members/${userData.id}`, {
       method: 'PUT',
       headers: {
@@ -147,12 +140,13 @@ app.get('/oauth/callback', async (req, res) => {
     });
 
     // Save user as verified
-    verifiedUsers.add(`${userData.username}#${userData.discriminator}`);
+    verifiedUsers.set(userData.id, `${userData.username}#${userData.discriminator}`);
 
     // Success page
     res.send(`
       <h1>You are verified!</h1>
       <p>You can now close this page.</p>
+      <p><a href="/">Back to Home</a></p>
     `);
   } catch (error) {
     console.error(error);
@@ -183,13 +177,77 @@ app.post('/admin/login', (req, res) => {
 
 // Admin Dashboard
 app.get('/admin/dashboard', (req, res) => {
+  // Verified Users List als <li>
+  const usersList = [...verifiedUsers.values()]
+    .map(u => `<li>${u}</li>`)
+    .join('');
+
   res.send(`
     <h1>Admin Dashboard</h1>
-    <h2>Verified Users</h2>
-    <ul>
-      ${[...verifiedUsers].map(u => `<li>${u}</li>`).join('')}
-    </ul>
+
+    <h2>Backup Server</h2>
+    <form method="POST" action="/admin/set-backup-guild">
+      <label>Backup Server Guild ID:</label><br/>
+      <input name="guildId" type="text" value="${backupGuildId}" placeholder="Enter Guild ID" required/>
+      <button type="submit">Set Backup Server</button>
+    </form>
+
+    <h2>Verified Users (${verifiedUsers.size})</h2>
+    <ul>${usersList}</ul>
+
+    ${backupGuildId ? `
+      <form method="POST" action="/admin/add-all-to-backup">
+        <button type="submit">Add all verified users to Backup Server</button>
+      </form>
+    ` : '<p>No Backup Server set.</p>'}
+
     <p><a href="/">Back to Home</a></p>
+  `);
+});
+
+// Set Backup Guild POST
+app.post('/admin/set-backup-guild', (req, res) => {
+  const { guildId } = req.body;
+  if (!guildId) {
+    return res.send('<p>Guild ID is required. <a href="/admin/dashboard">Back</a></p>');
+  }
+  backupGuildId = guildId.trim();
+  res.redirect('/admin/dashboard');
+});
+
+// Add all verified users to backup guild POST
+app.post('/admin/add-all-to-backup', async (req, res) => {
+  if (!backupGuildId) {
+    return res.send('<p>No Backup Server set. <a href="/admin/dashboard">Back</a></p>');
+  }
+
+  let successes = 0;
+  let failures = 0;
+
+  for (const [userId] of verifiedUsers) {
+    try {
+      await fetch(`https://discord.com/api/guilds/${backupGuildId}/members/${userId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bot ${DISCORD_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          // Ohne access_token klappt oft nur bei Bots mit „Bot OAuth2“ und „guilds.members.write“ Scope.
+          // Wenn Probleme auftreten, kann man das hier anpassen.
+          roles: [], // Optional: Rolle hinzufügen, wenn gewünscht
+        }),
+      });
+      successes++;
+    } catch {
+      failures++;
+    }
+  }
+
+  res.send(`
+    <p>Added ${successes} users to Backup Server.</p>
+    <p>Failed to add ${failures} users.</p>
+    <p><a href="/admin/dashboard">Back to Dashboard</a></p>
   `);
 });
 
@@ -198,7 +256,6 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   if (interaction.commandName === 'verify') {
-    // Check admin permission
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
       return interaction.reply({
         content: "You need Administrator permission to use this command.",
@@ -206,13 +263,11 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // Create Embed
     const embed = new EmbedBuilder()
       .setTitle('Verify')
       .setDescription('Tap the button below to verify yourself and gain access.')
       .setColor(0x00AE86);
 
-    // Button with link
     const verifyUrl = `https://pluezz-verify-system.onrender.com/verify?user_id=${interaction.user.id}`;
 
     const button = new ButtonBuilder()
@@ -222,7 +277,6 @@ client.on('interactionCreate', async interaction => {
 
     const row = new ActionRowBuilder().addComponents(button);
 
-    // Send public message
     await interaction.reply({
       embeds: [embed],
       components: [row],
