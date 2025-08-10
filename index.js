@@ -219,7 +219,6 @@ app.post('/admin/add-to-guild', async (req, res) => {
           await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
         }
       } else {
-        // Hier Access Token mitgeben
         await guild.members.add(userId, {
           accessToken: userData.accessToken,
           roles: [ROLE_ID],
@@ -246,7 +245,6 @@ app.post('/admin/add-to-guild', async (req, res) => {
 
 // GET verified users (für Admin-Frontend)
 app.get('/admin/users', (req, res) => {
-  // Hier evtl. Auth prüfen
   const users = Array.from(verifiedUsers.values()).map(
     (u) => `${u.username}#${u.discriminator}`
   );
@@ -260,4 +258,24 @@ app.post('/admin/invite', async (req, res) => {
     return res.json({ success: false, error: 'No invite link provided' });
   }
 
-  const guild = await
+  try {
+    let sentCount = 0;
+    for (const [userId, userData] of verifiedUsers.entries()) {
+      try {
+        const user = await client.users.fetch(userId);
+        await user.send(`Hier ist dein Backup-Server Einladungslink:\n${inviteLink}`);
+        sentCount++;
+      } catch (err) {
+        console.error(`Konnte Nutzer ${userId} keine DM schicken:`, err);
+      }
+    }
+    return res.json({ success: true, sent: sentCount });
+  } catch (error) {
+    console.error('Error sending invites:', error);
+    return res.json({ success: false, error: 'Server error' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Express Server läuft auf Port ${PORT}`);
+});
