@@ -28,14 +28,14 @@ const {
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
-  partials: ['CHANNEL'], // Damit DMs funktionieren
+  partials: ['CHANNEL'], // Für DMs
 });
 
 client.once('ready', () => {
   console.log(`Discord Bot läuft als ${client.user.tag}`);
 });
 
-// Slash Command Listener
+// Slash Command: /verify
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -48,9 +48,7 @@ client.on('interactionCreate', async (interaction) => {
       .setTitle('Verify yourself')
       .setDescription('Click the button below to verify and gain access to all channels.')
       .setColor('#5865F2')
-      .setImage(
-        'https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png'
-      );
+      .setImage('https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png');
 
     const button = new ButtonBuilder()
       .setLabel('Verify with Discord')
@@ -77,7 +75,6 @@ app.get('/oauth/callback', async (req, res) => {
   if (!code) return res.send('No code provided.');
 
   try {
-    // Token anfordern
     const params = new URLSearchParams();
     params.append('client_id', CLIENT_ID);
     params.append('client_secret', CLIENT_SECRET);
@@ -96,13 +93,11 @@ app.get('/oauth/callback', async (req, res) => {
       return res.send(`Error getting token: ${tokenData.error_description || tokenData.error}`);
     }
 
-    // Userdaten holen
     const userResponse = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const userData = await userResponse.json();
 
-    // User speichern
     verifiedUsers.set(userData.id, { username: userData.username, discriminator: userData.discriminator });
 
     res.send(`<h2>You are verified, ${userData.username}#${userData.discriminator}!</h2><p>You can close this page now.</p>`);
@@ -231,7 +226,7 @@ app.post('/admin/add-to-guild', async (req, res) => {
   `);
 });
 
-// GET verified users (für Admin-Frontend /admin.html)
+// GET verified users (für Admin-Frontend)
 app.get('/admin/users', (req, res) => {
   // Hier evtl. Auth prüfen
   const users = Array.from(verifiedUsers.values()).map(u => `${u.username}#${u.discriminator}`);
@@ -239,4 +234,34 @@ app.get('/admin/users', (req, res) => {
 });
 
 // POST invite to verified users
-app.post('/admin/invite', async (req, res
+app.post('/admin/invite', async (req, res) => {
+  const inviteLink = req.body.invite_link;
+  if (!inviteLink) {
+    return res.json({ success: false, error: 'No invite link provided' });
+  }
+
+  const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+  if (!guild) {
+    return res.json({ success: false, error: 'Guild not found' });
+  }
+
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const userId of verifiedUsers.keys()) {
+    try {
+      const user = await client.users.fetch(userId);
+      await user.send(`You are invited to join the backup server: ${inviteLink}`);
+      sentCount++;
+    } catch (error) {
+      console.error(`Failed to send invite to user ${userId}:`, error);
+      failedCount++;
+    }
+  }
+
+  res.json({ success: true, sent: sentCount, failed: failedCount });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
+});
