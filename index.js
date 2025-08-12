@@ -40,6 +40,9 @@ client.once('ready', () => {
   console.log(`Discord Bot läuft als ${client.user.tag}`);
 });
 
+// Verified Users Map speichert username, discriminator, accessToken
+const verifiedUsers = new Map();
+
 // Slash Command: /verify
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -70,14 +73,11 @@ client.on('interactionCreate', async (interaction) => {
 
 client.login(DISCORD_TOKEN);
 
-// Verified Users Map speichert jetzt auch accessToken
-const verifiedUsers = new Map();
-
 app.get('/', (req, res) => {
   res.send('<h1>Welcome to Pluezz Verify System</h1><p>Use /verify command in Discord to start verification.</p>');
 });
 
-// OAuth Callback
+// OAuth Callback: Access Token holen und User speichern
 app.get('/oauth/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) return res.send('No code provided.');
@@ -106,7 +106,7 @@ app.get('/oauth/callback', async (req, res) => {
     });
     const userData = await userResponse.json();
 
-    // Token zusammen mit Userdaten speichern
+    // Verified User speichern mit Access Token für Guild-Join
     verifiedUsers.set(userData.id, {
       username: userData.username,
       discriminator: userData.discriminator,
@@ -120,7 +120,7 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-// Admin Login Page
+// Admin Login Seite
 app.get('/admin', (req, res) => {
   res.send(`
     <h1>Admin Login</h1>
@@ -140,7 +140,7 @@ app.post('/admin/login', (req, res) => {
   }
 });
 
-// Admin Dashboard
+// Admin Dashboard mit Nutzerliste, Rolle vergeben & Einladungen verschicken
 app.get('/admin/dashboard', (req, res) => {
   if (req.query.auth !== '1') return res.redirect('/admin');
 
@@ -200,7 +200,7 @@ app.get('/admin/dashboard', (req, res) => {
   `);
 });
 
-// Add Users to Guild + Assign Role
+// Alle verifizierten User zur Guild hinzufügen und Rolle zuweisen
 app.post('/admin/add-to-guild', async (req, res) => {
   if (req.query.auth !== '1') return res.redirect('/admin');
 
@@ -219,6 +219,7 @@ app.post('/admin/add-to-guild', async (req, res) => {
           await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
         }
       } else {
+        // Mitglied hinzufügen mit OAuth AccessToken und Rolle
         await guild.members.add(userId, {
           accessToken: userData.accessToken,
           roles: [ROLE_ID],
@@ -243,7 +244,7 @@ app.post('/admin/add-to-guild', async (req, res) => {
   `);
 });
 
-// GET verified users (für Admin-Frontend)
+// GET verified users als JSON (Admin)
 app.get('/admin/users', (req, res) => {
   const users = Array.from(verifiedUsers.values()).map(
     (u) => `${u.username}#${u.discriminator}`
@@ -251,7 +252,7 @@ app.get('/admin/users', (req, res) => {
   res.json(users);
 });
 
-// POST invite to verified users
+// POST Einladungen an alle verified users schicken
 app.post('/admin/invite', async (req, res) => {
   const inviteLink = req.body.invite_link;
   if (!inviteLink) {
@@ -260,7 +261,7 @@ app.post('/admin/invite', async (req, res) => {
 
   try {
     let sentCount = 0;
-    for (const [userId, userData] of verifiedUsers.entries()) {
+    for (const [userId] of verifiedUsers.entries()) {
       try {
         const user = await client.users.fetch(userId);
         await user.send(`Hier ist dein Backup-Server Einladungslink:\n${inviteLink}`);
