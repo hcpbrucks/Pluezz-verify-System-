@@ -37,7 +37,7 @@ const client = new Client({
 });
 
 client.once('ready', () => {
-  console.log(`Discord Bot läuft als ${client.user.tag}`);
+  console.log(`Discord Bot läuft ${client.user.tag}`);
 });
 
 // Verified Users Map speichert username, discriminator, accessToken
