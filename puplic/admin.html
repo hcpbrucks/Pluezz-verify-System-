@@ -32,6 +32,9 @@
       width: 100%;
       max-width: 300px;
       transition: 0.3s;
+      margin: 0 auto;
+      display: block;
+      text-align: center;
     }
     input[type="text"]:focus {
       background: #3d0000;
@@ -42,13 +45,14 @@
       padding: 10px 20px;
       font-size: 16px;
       cursor: pointer;
-      margin-left: 8px;
+      margin: 20px auto 0 auto;
       background: transparent;
       border: 2px solid #ff2d2d;
       color: #ff2d2d;
       border-radius: 6px;
       box-shadow: 0 0 10px #ff2d2d;
       transition: 0.3s;
+      display: block;
     }
     button:hover {
       background: #ff2d2d;
@@ -90,23 +94,23 @@
   <h1>Backup Server Admin</h1>
 
   <section>
-    <h2>Verifizierte User</h2>
+    <h2>Verifizierte User (<span id="userCount">0</span>)</h2>
     <ul id="userList">Lade...</ul>
   </section>
 
   <section>
-    <h2>Backup Server Invite Link</h2>
+    <h2>Guild-ID</h2>
     <input
       type="text"
-      id="inviteInput"
-      placeholder="Discord invite link (z.B. https://discord.gg/abc123)"
+      id="guildIdInput"
+      placeholder="Guild ID eingeben"
+      value="DEINE_DEFAULT_GUILD_ID_HIER"
     />
-    <button id="sendInvite">Invite an verifizierte User senden</button>
+    <button id="addUsersBtn">Add User to Guild</button>
     <p id="status"></p>
   </section>
 
   <script>
-    // Verifizierte User laden und anzeigen
     async function loadUsers() {
       try {
         const res = await fetch('/admin/users');
@@ -116,6 +120,7 @@
         userList.innerHTML = '';
         if (users.length === 0) {
           userList.textContent = 'Keine verifizierten User gefunden.';
+          document.getElementById('userCount').textContent = '0';
           return;
         }
         users.forEach(u => {
@@ -123,6 +128,7 @@
           li.textContent = u;
           userList.appendChild(li);
         });
+        document.getElementById('userCount').textContent = users.length;
       } catch (err) {
         document.getElementById('userList').textContent = 'Fehler beim Laden der User.';
       }
@@ -130,31 +136,29 @@
 
     loadUsers();
 
-    // Invite-Link an alle verifizierten User schicken
-    document.getElementById('sendInvite').onclick = async () => {
-      const inviteLink = document.getElementById('inviteInput').value.trim();
+    document.getElementById('addUsersBtn').onclick = async () => {
+      const guildId = document.getElementById('guildIdInput').value.trim();
       const status = document.getElementById('status');
-      if (!inviteLink) {
-        alert('Bitte gib einen Invite-Link ein.');
+      if (!guildId) {
+        alert('Bitte gib eine Guild-ID ein.');
         return;
       }
-
-      status.textContent = 'Versende Invites...';
+      status.textContent = 'Füge User zur Guild hinzu...';
 
       try {
-        const res = await fetch('/admin/invite', {
+        const res = await fetch('/admin/add-users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invite_link: inviteLink }),
+          body: JSON.stringify({ guild_id: guildId }),
         });
         const data = await res.json();
         if (data.success) {
-          status.textContent = `Invites erfolgreich an ${data.sent} User gesendet.`;
+          status.textContent = `Erfolgreich ${data.added} User hinzugefügt.`;
         } else {
           status.textContent = `Fehler: ${data.error}`;
         }
       } catch (e) {
-        status.textContent = 'Fehler beim Senden der Invites.';
+        status.textContent = 'Fehler beim Hinzufügen der User.';
       }
     };
   </script>
