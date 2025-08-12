@@ -37,11 +37,92 @@ const client = new Client({
 });
 
 client.once('ready', () => {
-  console.log(`Discord Bot läuft ${client.user.tag}`);
+  console.log(`Discord Bot läuft als ${client.user.tag}`);
 });
 
 // Verified Users Map speichert username, discriminator, accessToken
 const verifiedUsers = new Map();
+
+// --- RED NEON CSS ---
+const redNeonCSS = `
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+    body {
+      background-color: #000;
+      color: #ff073a;
+      font-family: 'Share Tech Mono', monospace;
+      text-align: center;
+      padding: 2rem;
+      user-select: none;
+    }
+    h1, h2 {
+      color: #ff073a;
+      text-shadow:
+        0 0 5px #ff073a,
+        0 0 10px #ff073a,
+        0 0 20px #ff073a,
+        0 0 40px #ff073a;
+      margin-bottom: 1rem;
+    }
+    p, li, label {
+      font-size: 1.2rem;
+      margin-bottom: 0.8rem;
+      text-shadow: 0 0 5px #ff073a;
+    }
+    a {
+      color: #ff073a;
+      text-decoration: none;
+      font-weight: bold;
+      text-shadow: 0 0 10px #ff073a;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    input, button {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1.1rem;
+      padding: 0.5rem 1rem;
+      border: 2px solid #ff073a;
+      background: transparent;
+      color: #ff073a;
+      box-shadow:
+        0 0 5px #ff073a,
+        0 0 10px #ff073a,
+        0 0 20px #ff073a;
+      border-radius: 5px;
+      transition: all 0.3s ease;
+      outline: none;
+      user-select: text;
+    }
+    input:focus, button:hover {
+      background-color: #ff073a;
+      color: #000;
+      box-shadow:
+        0 0 10px #ff073a,
+        0 0 20px #ff073a,
+        0 0 30px #ff073a;
+      cursor: pointer;
+    }
+    form {
+      margin-top: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 1rem auto;
+      max-width: 500px;
+      text-align: left;
+    }
+    #status {
+      margin-top: 1rem;
+      font-weight: bold;
+      color: #ff073a;
+      text-shadow: 0 0 10px #ff073a;
+    }
+  </style>
+`;
 
 // Slash Command: /verify
 client.on('interactionCreate', async (interaction) => {
@@ -55,7 +136,7 @@ client.on('interactionCreate', async (interaction) => {
     const embed = new EmbedBuilder()
       .setTitle('Verify yourself')
       .setDescription('Click the button below to verify and gain access to all channels.')
-      .setColor('#5865F2')
+      .setColor('#ff073a')
       .setImage(
         'https://cdn.discordapp.com/attachments/1381283382855733390/1402443142653022268/917AB148-0FF6-468E-8CF6-C1E7813E1BB6.png'
       );
@@ -74,7 +155,16 @@ client.on('interactionCreate', async (interaction) => {
 client.login(DISCORD_TOKEN);
 
 app.get('/', (req, res) => {
-  res.send('<h1>Welcome to Pluezz Verify System</h1><p>Use /verify command in Discord to start verification.</p>');
+  res.send(`
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pluezz Verify System</title>
+    ${redNeonCSS}
+    </head><body>
+      <h1>Welcome to Pluezz Verify System</h1>
+      <p>Use the <strong>/verify</strong> command in Discord to start verification.</p>
+    </body></html>
+  `);
 });
 
 // OAuth Callback: Access Token holen und User speichern
@@ -113,7 +203,16 @@ app.get('/oauth/callback', async (req, res) => {
       accessToken: tokenData.access_token,
     });
 
-    res.send(`<h2>You are verified, ${userData.username}#${userData.discriminator}!</h2><p>You can close this page now.</p>`);
+    res.send(`
+      <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Verification Complete</title>
+      ${redNeonCSS}
+      </head><body>
+        <h2>You are verified, ${userData.username}#${userData.discriminator}!</h2>
+        <p>You can close this page now.</p>
+      </body></html>
+    `);
   } catch (error) {
     console.error('OAuth Callback Error:', error);
     res.send('Error during OAuth process.');
@@ -123,11 +222,17 @@ app.get('/oauth/callback', async (req, res) => {
 // Admin Login Seite
 app.get('/admin', (req, res) => {
   res.send(`
-    <h1>Admin Login</h1>
-    <form method="POST" action="/admin/login">
-      <input name="password" type="password" placeholder="Password" required />
-      <button type="submit">Login</button>
-    </form>
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Login</title>
+    ${redNeonCSS}
+    </head><body>
+      <h1>Admin Login</h1>
+      <form method="POST" action="/admin/login">
+        <input name="password" type="password" placeholder="Password" required autocomplete="off" />
+        <button type="submit">Login</button>
+      </form>
+    </body></html>
   `);
 });
 
@@ -136,7 +241,16 @@ app.post('/admin/login', (req, res) => {
   if (password === ADMIN_PASSWORD) {
     res.redirect('/admin/dashboard?auth=1');
   } else {
-    res.send('<p>Wrong password!</p><a href="/admin">Back</a>');
+    res.send(`
+      <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Admin Login Failed</title>
+      ${redNeonCSS}
+      </head><body>
+        <p>Wrong password!</p>
+        <a href="/admin">Back</a>
+      </body></html>
+    `);
   }
 });
 
@@ -151,52 +265,61 @@ app.get('/admin/dashboard', (req, res) => {
   if (!userListHtml) userListHtml = '<li>No verified users yet.</li>';
 
   res.send(`
-    <h1>Admin Dashboard</h1>
-    <h2>Verified Users:</h2>
-    <ul>${userListHtml}</ul>
-    <form method="POST" action="/admin/add-to-guild?auth=1">
-      <label>Guild ID (default from env):</label><br />
-      <input name="guildId" value="${GUILD_ID}" /><br /><br />
-      <button type="submit">Add all verified users to Guild & Assign Role</button>
-    </form>
-    <hr />
-    <h2>Send Backup Server Invites</h2>
-    <form id="inviteForm">
-      <input type="text" id="inviteInput" placeholder="Discord invite link (z.B. https://discord.gg/abc123)" style="width:300px;" required />
-      <button type="submit">Send Invite to Verified Users</button>
-    </form>
-    <p id="status"></p>
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Dashboard</title>
+    ${redNeonCSS}
+    </head><body>
+      <h1>Admin Dashboard</h1>
+      <h2>Verified Users:</h2>
+      <ul>${userListHtml}</ul>
 
-    <script>
-      const form = document.getElementById('inviteForm');
-      const status = document.getElementById('status');
+      <form method="POST" action="/admin/add-to-guild?auth=1">
+        <label>Guild ID (default from env):</label><br />
+        <input name="guildId" value="${GUILD_ID}" autocomplete="off" /><br /><br />
+        <button type="submit">Add all verified users to Guild & Assign Role</button>
+      </form>
 
-      form.onsubmit = async (e) => {
-        e.preventDefault();
-        const inviteLink = document.getElementById('inviteInput').value.trim();
-        if (!inviteLink) {
-          alert('Please enter an invite link.');
-          return;
-        }
-        status.textContent = 'Sending invites...';
+      <hr />
 
-        try {
-          const res = await fetch('/admin/invite', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ invite_link: inviteLink }),
-          });
-          const data = await res.json();
-          if (data.success) {
-            status.textContent = \`Invites sent to \${data.sent} users.\`;
-          } else {
-            status.textContent = \`Error: \${data.error}\`;
+      <h2>Send Backup Server Invites</h2>
+      <form id="inviteForm">
+        <input type="text" id="inviteInput" placeholder="Discord invite link (z.B. https://discord.gg/abc123)" style="width:300px;" required autocomplete="off" />
+        <button type="submit">Send Invite to Verified Users</button>
+      </form>
+      <p id="status"></p>
+
+      <script>
+        const form = document.getElementById('inviteForm');
+        const status = document.getElementById('status');
+
+        form.onsubmit = async (e) => {
+          e.preventDefault();
+          const inviteLink = document.getElementById('inviteInput').value.trim();
+          if (!inviteLink) {
+            alert('Please enter an invite link.');
+            return;
           }
-        } catch (err) {
-          status.textContent = 'Request failed.';
-        }
-      };
-    </script>
+          status.textContent = 'Sending invites...';
+
+          try {
+            const res = await fetch('/admin/invite', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ invite_link: inviteLink }),
+            });
+            const data = await res.json();
+            if (data.success) {
+              status.textContent = \`Invites sent to \${data.sent} users.\`;
+            } else {
+              status.textContent = \`Error: \${data.error}\`;
+            }
+          } catch (err) {
+            status.textContent = 'Request failed.';
+          }
+        };
+      </script>
+    </body></html>
   `);
 });
 
@@ -206,77 +329,11 @@ app.post('/admin/add-to-guild', async (req, res) => {
 
   const guildId = req.body.guildId || GUILD_ID;
   const guild = await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) return res.send('<p>Guild not found!</p><a href="/admin/dashboard?auth=1">Back</a>');
-
-  let addedCount = 0;
-  let failedUsers = [];
-
-  for (const [userId, userData] of verifiedUsers.entries()) {
-    try {
-      const member = await guild.members.fetch(userId).catch(() => null);
-      if (member) {
-        if (!member.roles.cache.has(ROLE_ID)) {
-          await member.roles.add(ROLE_ID, 'User verified via Pluezz Verify System');
-        }
-      } else {
-        // Mitglied hinzufügen mit OAuth AccessToken und Rolle
-        await guild.members.add(userId, {
-          accessToken: userData.accessToken,
-          roles: [ROLE_ID],
-          reason: 'User verified via Pluezz Verify System',
-        });
-      }
-      addedCount++;
-    } catch (error) {
-      console.error(`Failed to add user ${userId}:`, error);
-      failedUsers.push(userId);
-    }
-  }
-
-  res.send(`
-    <p>Successfully processed ${addedCount} users.</p>
-    ${
-      failedUsers.length > 0
-        ? `<p>Failed to add these users: ${failedUsers.join(', ')}</p>`
-        : ''
-    }
-    <p><a href="/admin/dashboard?auth=1">Back to dashboard</a></p>
-  `);
-});
-
-// GET verified users als JSON (Admin)
-app.get('/admin/users', (req, res) => {
-  const users = Array.from(verifiedUsers.values()).map(
-    (u) => `${u.username}#${u.discriminator}`
-  );
-  res.json(users);
-});
-
-// POST Einladungen an alle verified users schicken
-app.post('/admin/invite', async (req, res) => {
-  const inviteLink = req.body.invite_link;
-  if (!inviteLink) {
-    return res.json({ success: false, error: 'No invite link provided' });
-  }
-
-  try {
-    let sentCount = 0;
-    for (const [userId] of verifiedUsers.entries()) {
-      try {
-        const user = await client.users.fetch(userId);
-        await user.send(`Hier ist dein Backup-Server Einladungslink:\n${inviteLink}`);
-        sentCount++;
-      } catch (err) {
-        console.error(`Konnte Nutzer ${userId} keine DM schicken:`, err);
-      }
-    }
-    return res.json({ success: true, sent: sentCount });
-  } catch (error) {
-    console.error('Error sending invites:', error);
-    return res.json({ success: false, error: 'Server error' });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`Express Server läuft auf Port ${PORT}`);
-});
+  if (!guild) return res.send(`
+    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Error</title>
+    ${redNeonCSS}
+    </head><body>
+      <p>Guild not found!</p>
+      <a href="/admin/dashboard
