@@ -277,63 +277,68 @@ app.get('/admin/dashboard', (req, res) => {
       <form method="POST" action="/admin/add-to-guild?auth=1">
         <label>Guild ID (default from env):</label><br />
         <input name="guildId" value="${GUILD_ID}" autocomplete="off" /><br /><br />
-        <button type="submit">Add all verified users to Guild & Assign Role</button>
+
+        <label>User ID to add:</label><br />
+        <input name="userId" required autocomplete="off" /><br /><br />
+
+        <label>Role ID to assign:</label><br />
+        <input name="roleId" value="${ROLE_ID}" autocomplete="off" /><br /><br />
+
+        <button type="submit">Add User to Guild & Assign Role</button>
       </form>
-
-      <hr />
-
-      <h2>Send Backup Server Invites</h2>
-      <form id="inviteForm">
-        <input type="text" id="inviteInput" placeholder="Discord invite link (z.B. https://discord.gg/abc123)" style="width:300px;" required autocomplete="off" />
-        <button type="submit">Send Invite to Verified Users</button>
-      </form>
-      <p id="status"></p>
-
-      <script>
-        const form = document.getElementById('inviteForm');
-        const status = document.getElementById('status');
-
-        form.onsubmit = async (e) => {
-          e.preventDefault();
-          const inviteLink = document.getElementById('inviteInput').value.trim();
-          if (!inviteLink) {
-            alert('Please enter an invite link.');
-            return;
-          }
-          status.textContent = 'Sending invites...';
-
-          try {
-            const res = await fetch('/admin/invite', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ invite_link: inviteLink }),
-            });
-            const data = await res.json();
-            if (data.success) {
-              status.textContent = \`Invites sent to \${data.sent} users.\`;
-            } else {
-              status.textContent = \`Error: \${data.error}\`;
-            }
-          } catch (err) {
-            status.textContent = 'Request failed.';
-          }
-        };
-      </script>
     </body></html>
   `);
 });
 
-// Alle verifizierten User zur Guild hinzufügen und Rolle zuweisen
+// Rolle vergeben und Nutzer zum Server hinzufügen (Admin Aktion)
 app.post('/admin/add-to-guild', async (req, res) => {
   if (req.query.auth !== '1') return res.redirect('/admin');
 
-  const guildId = req.body.guildId || GUILD_ID;
-  const guild = await client.guilds.fetch(guildId).catch(() => null);
-  if (!guild) return res.send(`
-    <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Error</title>
-    ${redNeonCSS}
-    </head><body>
-      <p>Guild not found!</p>
-      <a href="/admin/dashboard
+  const { guildId, userId, roleId } = req.body;
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    if (!guild) return res.send('Guild not found.');
+
+    // Wenn Nutzer schon im Server: Rolle vergeben
+    let member;
+    try {
+      member = await guild.members.fetch(userId);
+    } catch {
+      // Nutzer noch nicht im Server: mit OAuth Access Token einladen
+      const verifiedUser = verifiedUsers.get(userId);
+      if (!verifiedUser) return res.send('User not verified or token missing.');
+
+      // Discord API Einladen über OAuth2-Token (guilds.join scope)
+      const inviteResponse = await fetch(
+        `https://discord.com/api/guilds/${guildId}/members/${userId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            access_token: verifiedUser.accessToken,
+            roles: [roleId],
+          }),
+          headers: {
+            Authorization: `Bot ${DISCORD_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      if (!inviteResponse.ok) {
+        const errorJson = await inviteResponse.json();
+        return res.send(`Error adding user to guild: ${JSON.stringify(errorJson)}`);
+      }
+      return res.redirect('/admin/dashboard?auth=1');
+    }
+
+    // Rolle vergeben
+    await member.roles.add(roleId);
+    res.redirect('/admin/dashboard?auth=1');
+  } catch (error) {
+    console.error(error);
+    res.send('Error adding role or user.');
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server läuft auf http://localhost:${PORT}`);
+});
